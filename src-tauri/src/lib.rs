@@ -7,7 +7,11 @@ mod window;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+    AppHandle, Emitter, Manager, State,
+};
 
 use config::Settings;
 use ipc::{IpcCommand, IpcResponse};
@@ -61,6 +65,56 @@ fn set_settings(state: State<AppState>, new_settings: Settings) -> Result<(), St
     let mut settings = state.settings.lock().unwrap();
     *settings = new_settings;
     settings.save()
+}
+
+#[tauri::command]
+fn open_settings_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("settings") {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn pick_app() -> Result<Option<String>, String> {
+    use std::process::Command;
+
+    // Use osascript to open file dialog and get bundle ID
+    let script = r#"
+        set appPath to choose file of type {"app"} with prompt "Select an application" default location "/Applications"
+        set appPath to POSIX path of appPath
+        return appPath
+    "#;
+
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .map_err(|e| format!("Failed to run osascript: {}", e))?;
+
+    if !output.status.success() {
+        // User cancelled
+        return Ok(None);
+    }
+
+    let app_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if app_path.is_empty() {
+        return Ok(None);
+    }
+
+    // Get bundle ID using mdls
+    let bundle_output = Command::new("mdls")
+        .args(["-name", "kMDItemCFBundleIdentifier", "-raw", &app_path])
+        .output()
+        .map_err(|e| format!("Failed to get bundle ID: {}", e))?;
+
+    let bundle_id = String::from_utf8_lossy(&bundle_output.stdout).trim().to_string();
+    if bundle_id.is_empty() || bundle_id == "(null)" {
+        return Err("Could not determine bundle identifier".to_string());
+    }
+
+    Ok(Some(bundle_id))
 }
 
 #[tauri::command]
@@ -216,8 +270,31 @@ pub fn run() {
             start_capture,
             stop_capture,
             is_capture_running,
+            open_settings_window,
+            pick_app,
         ])
         .setup(move |app| {
+            // Set up tray menu
+            let settings_item = MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&settings_item, &quit_item])?;
+
+            let _tray = TrayIconBuilder::new()
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "settings" => {
+                        if let Some(window) = app.get_webview_window("settings") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .build(app)?;
+
             if let Some(indicator_window) = app.get_webview_window("indicator") {
                 if let Err(e) = setup_indicator_window(&indicator_window) {
                     log::error!("Failed to setup indicator window: {}", e);

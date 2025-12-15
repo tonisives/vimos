@@ -3,10 +3,11 @@ use std::path::PathBuf;
 
 /// Application settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Settings {
     /// The key that toggles vim mode (keycode string)
     pub vim_key: String,
-    /// Indicator window position (0-8 for 3x3 grid)
+    /// Indicator window position (0-5 for 2x3 grid)
     pub indicator_position: u8,
     /// Indicator opacity (0.0 - 1.0)
     pub indicator_opacity: f32,
@@ -18,6 +19,12 @@ pub struct Settings {
     pub launch_at_login: bool,
     /// Show in menu bar
     pub show_in_menu_bar: bool,
+    /// Top widget type
+    pub top_widget: String,
+    /// Bottom widget type
+    pub bottom_widget: String,
+    /// Bundle identifiers of Electron apps for selection observing
+    pub electron_apps: Vec<String>,
 }
 
 impl Default for Settings {
@@ -34,6 +41,9 @@ impl Default for Settings {
             ],
             launch_at_login: false,
             show_in_menu_bar: true,
+            top_widget: "None".to_string(),
+            bottom_widget: "None".to_string(),
+            electron_apps: vec![],
         }
     }
 }

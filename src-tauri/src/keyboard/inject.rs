@@ -7,12 +7,6 @@ use super::keycode::{KeyCode, Modifiers};
 /// We use a high value that's unlikely to conflict with real keycodes
 pub const INJECTED_EVENT_MARKER: i64 = 0x54495649; // "TIVI" in hex
 
-/// Check if an event was injected by us
-pub fn is_injected_event(event: &CGEvent) -> bool {
-    // Use USER_DATA field to mark our events
-    event.get_integer_value_field(EventField::EVENT_SOURCE_USER_DATA) == INJECTED_EVENT_MARKER
-}
-
 /// Inject a single key event
 pub fn inject_key(keycode: KeyCode, key_down: bool, modifiers: Modifiers) -> Result<(), String> {
     let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
@@ -36,14 +30,6 @@ pub fn inject_key(keycode: KeyCode, key_down: bool, modifiers: Modifiers) -> Res
 pub fn inject_key_press(keycode: KeyCode, modifiers: Modifiers) -> Result<(), String> {
     inject_key(keycode, true, modifiers)?;
     inject_key(keycode, false, modifiers)?;
-    Ok(())
-}
-
-/// Inject a sequence of key presses
-pub fn inject_key_sequence(keys: &[(KeyCode, Modifiers)]) -> Result<(), String> {
-    for (keycode, modifiers) in keys {
-        inject_key_press(*keycode, *modifiers)?;
-    }
     Ok(())
 }
 
@@ -276,17 +262,6 @@ pub fn redo() -> Result<(), String> {
     )
 }
 
-/// Select all (Cmd+A)
-pub fn select_all() -> Result<(), String> {
-    inject_key_press(
-        KeyCode::A,
-        Modifiers {
-            command: true,
-            ..Default::default()
-        },
-    )
-}
-
 /// New line below (o) - Cmd+Right, Return
 pub fn new_line_below() -> Result<(), String> {
     line_end(false)?;
@@ -298,4 +273,83 @@ pub fn new_line_above() -> Result<(), String> {
     line_start(false)?;
     inject_key_press(KeyCode::Return, Modifiers::default())?;
     cursor_up(1, false)
+}
+
+/// Paragraph up ({) - Option+Up on macOS
+pub fn paragraph_up(count: u32, select: bool) -> Result<(), String> {
+    let mods = Modifiers {
+        option: true,
+        shift: select,
+        ..Default::default()
+    };
+
+    for _ in 0..count {
+        inject_arrow(ArrowDirection::Up, mods)?;
+    }
+    Ok(())
+}
+
+/// Paragraph down (}) - Option+Down on macOS
+pub fn paragraph_down(count: u32, select: bool) -> Result<(), String> {
+    let mods = Modifiers {
+        option: true,
+        shift: select,
+        ..Default::default()
+    };
+
+    for _ in 0..count {
+        inject_arrow(ArrowDirection::Down, mods)?;
+    }
+    Ok(())
+}
+
+/// Join lines (J) - go to end, delete newline, add space
+pub fn join_lines() -> Result<(), String> {
+    line_end(false)?;
+    delete_char()?;
+    inject_key_press(KeyCode::Space, Modifiers::default())
+}
+
+/// Select inner word (iw) - Option+Left to word start, Option+Shift+Right to select word
+pub fn select_inner_word() -> Result<(), String> {
+    word_backward(1, false)?;
+    word_forward(1, true)
+}
+
+/// Select around word (aw) - inner word + trailing space
+pub fn select_around_word() -> Result<(), String> {
+    word_backward(1, false)?;
+    word_forward(1, true)?;
+    cursor_right(1, true)
+}
+
+/// Indent line (>>) - Tab key
+pub fn indent_line() -> Result<(), String> {
+    line_start(false)?;
+    inject_key_press(KeyCode::Tab, Modifiers::default())
+}
+
+/// Outdent line (<<) - Shift+Tab
+pub fn outdent_line() -> Result<(), String> {
+    line_start(false)?;
+    inject_key_press(
+        KeyCode::Tab,
+        Modifiers {
+            shift: true,
+            ..Default::default()
+        },
+    )
+}
+
+/// Type a character
+pub fn type_char(keycode: KeyCode, shift: bool) -> Result<(), String> {
+    let mods = if shift {
+        Modifiers {
+            shift: true,
+            ..Default::default()
+        }
+    } else {
+        Modifiers::default()
+    };
+    inject_key_press(keycode, mods)
 }

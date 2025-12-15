@@ -13,10 +13,15 @@ pub enum VimCommand {
     WordForward,
     WordEnd,
     WordBackward,
+    WordEndBackward, // ge
 
     // Line motions
     LineStart,
     LineEnd,
+
+    // Paragraph motions
+    ParagraphUp,   // {
+    ParagraphDown, // }
 
     // Document motions
     DocumentStart,
@@ -29,21 +34,31 @@ pub enum VimCommand {
     HalfPageDown,
 
     // Insert mode transitions
-    InsertAtCursor,
     InsertAtLineStart,
     AppendAfterCursor,
     AppendAtLineEnd,
     OpenLineBelow,
     OpenLineAbove,
+    SubstituteChar, // s - delete char and enter insert
+    SubstituteLine, // S - delete line and enter insert
 
     // Operations
     DeleteChar,
-    DeleteCharBefore,
+    DeleteCharBefore, // X
     DeleteLine,
-    DeleteToLineEnd,
+    DeleteToLineEnd,  // D
     YankLine,
     ChangeLine,
-    ChangeToLineEnd,
+    ChangeToLineEnd, // C
+    JoinLines,       // J
+
+    // Text objects
+    InnerWord, // iw - select word
+    AroundWord, // aw - select word + space
+
+    // Indent
+    IndentLine,  // >>
+    OutdentLine, // <<
 
     // Clipboard
     Paste,
@@ -53,11 +68,6 @@ pub enum VimCommand {
     Undo,
     Redo,
 
-    // Mode transitions
-    EnterNormalMode,
-    EnterInsertMode,
-    EnterVisualMode,
-    ExitToInsertMode,
 }
 
 impl VimCommand {
@@ -72,11 +82,15 @@ impl VimCommand {
 
             // Word motions
             Self::WordForward | Self::WordEnd => keyboard::word_forward(count, select),
-            Self::WordBackward => keyboard::word_backward(count, select),
+            Self::WordBackward | Self::WordEndBackward => keyboard::word_backward(count, select),
 
             // Line motions
             Self::LineStart => keyboard::line_start(select),
             Self::LineEnd => keyboard::line_end(select),
+
+            // Paragraph motions
+            Self::ParagraphUp => keyboard::paragraph_up(count, select),
+            Self::ParagraphDown => keyboard::paragraph_down(count, select),
 
             // Document motions
             Self::DocumentStart => keyboard::document_start(select),
@@ -87,12 +101,17 @@ impl VimCommand {
             Self::PageDown | Self::HalfPageDown => keyboard::page_down(select),
 
             // Insert mode transitions
-            Self::InsertAtCursor | Self::EnterInsertMode | Self::ExitToInsertMode => Ok(()),
             Self::InsertAtLineStart => keyboard::line_start(false),
             Self::AppendAfterCursor => keyboard::cursor_right(1, false),
             Self::AppendAtLineEnd => keyboard::line_end(false),
             Self::OpenLineBelow => keyboard::new_line_below(),
             Self::OpenLineAbove => keyboard::new_line_above(),
+            Self::SubstituteChar => keyboard::delete_char(),
+            Self::SubstituteLine => {
+                keyboard::line_start(false)?;
+                keyboard::line_end(true)?;
+                keyboard::cut()
+            }
 
             // Operations
             Self::DeleteChar => {
@@ -108,7 +127,6 @@ impl VimCommand {
                 Ok(())
             }
             Self::DeleteLine => {
-                // Select entire line and delete
                 keyboard::line_start(false)?;
                 keyboard::line_end(true)?;
                 keyboard::cut()
@@ -131,6 +149,30 @@ impl VimCommand {
                 keyboard::line_end(true)?;
                 keyboard::cut()
             }
+            Self::JoinLines => {
+                for _ in 0..count {
+                    keyboard::join_lines()?;
+                }
+                Ok(())
+            }
+
+            // Text objects
+            Self::InnerWord => keyboard::select_inner_word(),
+            Self::AroundWord => keyboard::select_around_word(),
+
+            // Indent
+            Self::IndentLine => {
+                for _ in 0..count {
+                    keyboard::indent_line()?;
+                }
+                Ok(())
+            }
+            Self::OutdentLine => {
+                for _ in 0..count {
+                    keyboard::outdent_line()?;
+                }
+                Ok(())
+            }
 
             // Clipboard
             Self::Paste | Self::PasteBefore => keyboard::paste(),
@@ -138,9 +180,6 @@ impl VimCommand {
             // Undo/Redo
             Self::Undo => keyboard::undo(),
             Self::Redo => keyboard::redo(),
-
-            // Mode changes handled by state machine
-            Self::EnterNormalMode | Self::EnterVisualMode => Ok(()),
         }
     }
 }

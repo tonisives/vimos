@@ -23,6 +23,20 @@ pub enum ProcessResult {
     ModeChanged(VimMode, Option<VimAction>),
 }
 
+/// Text object modifier (i for inner, a for around)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextObjectModifier {
+    Inner,  // i
+    Around, // a
+}
+
+/// Indent direction
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndentDirection {
+    Indent,  // >
+    Outdent, // <
+}
+
 /// Vim state machine
 pub struct VimState {
     mode: VimMode,
@@ -32,8 +46,14 @@ pub struct VimState {
     pending_count: Option<u32>,
     /// Pending operator (d, y, c)
     pending_operator: Option<Operator>,
-    /// Pending g key for gg, gt, gT
+    /// Pending g key for gg, gt, gT, ge, etc
     pending_g: bool,
+    /// Pending r key for r{char} replace
+    pending_r: bool,
+    /// Pending text object modifier (i or a after d/y/c)
+    pending_text_object: Option<TextObjectModifier>,
+    /// Pending indent direction (> or <)
+    pending_indent: Option<IndentDirection>,
     /// Channel to emit mode changes
     mode_tx: broadcast::Sender<VimMode>,
 }
@@ -48,6 +68,9 @@ impl VimState {
                 pending_count: None,
                 pending_operator: None,
                 pending_g: false,
+                pending_r: false,
+                pending_text_object: None,
+                pending_indent: None,
                 mode_tx,
             },
             mode_rx,
@@ -56,10 +79,6 @@ impl VimState {
 
     pub fn mode(&self) -> VimMode {
         self.mode
-    }
-
-    pub fn set_vim_key(&mut self, key: KeyCode) {
-        self.vim_key = key;
     }
 
     pub(super) fn set_mode(&mut self, mode: VimMode) {
@@ -89,6 +108,9 @@ impl VimState {
         self.pending_count = None;
         self.pending_operator = None;
         self.pending_g = false;
+        self.pending_r = false;
+        self.pending_text_object = None;
+        self.pending_indent = None;
     }
 
     pub(super) fn get_count(&self) -> u32 {
@@ -115,7 +137,7 @@ impl VimState {
         match self.mode {
             VimMode::Insert => ProcessResult::PassThrough,
             VimMode::Normal => self.process_normal_mode(keycode, &event.modifiers),
-            VimMode::Visual => self.process_visual_mode(keycode),
+            VimMode::Visual => self.process_visual_mode_with_modifiers(keycode, &event.modifiers),
         }
     }
 
@@ -136,10 +158,14 @@ impl VimState {
             keycode,
             KeyCode::H | KeyCode::J | KeyCode::K | KeyCode::L |
             KeyCode::W | KeyCode::E | KeyCode::B |
-            KeyCode::Num0 | KeyCode::G |
+            KeyCode::Num0 | KeyCode::Num1 | KeyCode::Num2 | KeyCode::Num3 |
+            KeyCode::Num4 | KeyCode::Num5 | KeyCode::Num6 | KeyCode::Num7 |
+            KeyCode::Num8 | KeyCode::Num9 | KeyCode::G | KeyCode::R |
             KeyCode::D | KeyCode::Y | KeyCode::C | KeyCode::X |
-            KeyCode::I | KeyCode::A | KeyCode::O |
-            KeyCode::V | KeyCode::P | KeyCode::U
+            KeyCode::I | KeyCode::A | KeyCode::O | KeyCode::S |
+            KeyCode::V | KeyCode::P | KeyCode::U |
+            KeyCode::LeftBracket | KeyCode::RightBracket |
+            KeyCode::Period | KeyCode::Comma
         );
 
         if should_suppress {

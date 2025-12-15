@@ -30,6 +30,18 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "visible": true
+      },
+      {
+        "label": "settings",
+        "title": "ti-vim Settings",
+        "url": "/settings.html",
+        "width": 600,
+        "height": 500,
+        "resizable": true,
+        "decorations": true,
+        "transparent": false,
+        "visible": false,
+        "center": true
       }
     ],
     "security": {

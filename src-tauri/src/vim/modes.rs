@@ -26,14 +26,6 @@ impl VimMode {
             Self::Visual => "visual",
         }
     }
-
-    pub fn indicator_char(&self) -> char {
-        match self {
-            Self::Insert => 'i',
-            Self::Normal => 'n',
-            Self::Visual => 'v',
-        }
-    }
 }
 
 impl std::fmt::Display for VimMode {

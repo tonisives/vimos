@@ -205,46 +205,46 @@ impl KeyCode {
         }
     }
 
-    /// Convert a character to its keycode (lowercase)
-    pub fn from_char(c: char) -> Option<Self> {
-        match c.to_ascii_lowercase() {
-            'a' => Some(Self::A),
-            'b' => Some(Self::B),
-            'c' => Some(Self::C),
-            'd' => Some(Self::D),
-            'e' => Some(Self::E),
-            'f' => Some(Self::F),
-            'g' => Some(Self::G),
-            'h' => Some(Self::H),
-            'i' => Some(Self::I),
-            'j' => Some(Self::J),
-            'k' => Some(Self::K),
-            'l' => Some(Self::L),
-            'm' => Some(Self::M),
-            'n' => Some(Self::N),
-            'o' => Some(Self::O),
-            'p' => Some(Self::P),
-            'q' => Some(Self::Q),
-            'r' => Some(Self::R),
-            's' => Some(Self::S),
-            't' => Some(Self::T),
-            'u' => Some(Self::U),
-            'v' => Some(Self::V),
-            'w' => Some(Self::W),
-            'x' => Some(Self::X),
-            'y' => Some(Self::Y),
-            'z' => Some(Self::Z),
-            '0' => Some(Self::Num0),
-            '1' => Some(Self::Num1),
-            '2' => Some(Self::Num2),
-            '3' => Some(Self::Num3),
-            '4' => Some(Self::Num4),
-            '5' => Some(Self::Num5),
-            '6' => Some(Self::Num6),
-            '7' => Some(Self::Num7),
-            '8' => Some(Self::Num8),
-            '9' => Some(Self::Num9),
-            ' ' => Some(Self::Space),
+    /// Convert keycode to character (for r{char} replacement)
+    pub fn to_char(&self) -> Option<char> {
+        match self {
+            Self::A => Some('a'),
+            Self::B => Some('b'),
+            Self::C => Some('c'),
+            Self::D => Some('d'),
+            Self::E => Some('e'),
+            Self::F => Some('f'),
+            Self::G => Some('g'),
+            Self::H => Some('h'),
+            Self::I => Some('i'),
+            Self::J => Some('j'),
+            Self::K => Some('k'),
+            Self::L => Some('l'),
+            Self::M => Some('m'),
+            Self::N => Some('n'),
+            Self::O => Some('o'),
+            Self::P => Some('p'),
+            Self::Q => Some('q'),
+            Self::R => Some('r'),
+            Self::S => Some('s'),
+            Self::T => Some('t'),
+            Self::U => Some('u'),
+            Self::V => Some('v'),
+            Self::W => Some('w'),
+            Self::X => Some('x'),
+            Self::Y => Some('y'),
+            Self::Z => Some('z'),
+            Self::Num0 => Some('0'),
+            Self::Num1 => Some('1'),
+            Self::Num2 => Some('2'),
+            Self::Num3 => Some('3'),
+            Self::Num4 => Some('4'),
+            Self::Num5 => Some('5'),
+            Self::Num6 => Some('6'),
+            Self::Num7 => Some('7'),
+            Self::Num8 => Some('8'),
+            Self::Num9 => Some('9'),
+            Self::Space => Some(' '),
             _ => None,
         }
     }
@@ -297,9 +297,6 @@ impl Modifiers {
         flags
     }
 
-    pub fn is_empty(&self) -> bool {
-        !self.shift && !self.control && !self.option && !self.command
-    }
 }
 
 /// A key event with code and modifiers
