@@ -4,15 +4,56 @@ use crate::keyboard::{self, KeyCode, KeyEvent, Modifiers};
 use super::commands::{Operator, VimCommand};
 use super::modes::VimMode;
 
+/// Action to execute after suppressing the key event
+#[derive(Debug, Clone)]
+pub enum VimAction {
+    /// No action needed
+    None,
+    /// Execute a vim command
+    Command { command: VimCommand, count: u32, select: bool },
+    /// Execute an operator with a motion
+    OperatorMotion { operator: Operator, motion: VimCommand, count: u32 },
+    /// Cut (Cmd+X)
+    Cut,
+    /// Copy (Cmd+C)
+    Copy,
+}
+
+impl VimAction {
+    /// Execute the action
+    pub fn execute(&self) -> Result<bool, String> {
+        match self {
+            VimAction::None => Ok(false),
+            VimAction::Command { command, count, select } => {
+                command.execute(*count, *select)?;
+                Ok(false)
+            }
+            VimAction::OperatorMotion { operator, motion, count } => {
+                operator.execute_with_motion(*motion, *count)
+            }
+            VimAction::Cut => {
+                keyboard::cut()?;
+                Ok(false)
+            }
+            VimAction::Copy => {
+                keyboard::copy()?;
+                Ok(false)
+            }
+        }
+    }
+}
+
 /// Result of processing a key event
 #[derive(Debug, Clone)]
 pub enum ProcessResult {
-    /// Suppress the key event entirely
+    /// Suppress the key event entirely (no action needed)
     Suppress,
+    /// Suppress and execute an action (deferred execution)
+    SuppressWithAction(VimAction),
     /// Pass the key event through unchanged
     PassThrough,
-    /// Mode changed (emit event)
-    ModeChanged(VimMode),
+    /// Mode changed (emit event), with optional action to execute
+    ModeChanged(VimMode, Option<VimAction>),
 }
 
 /// Vim state machine
@@ -142,11 +183,11 @@ impl VimState {
         match self.mode {
             VimMode::Insert => {
                 self.set_mode(VimMode::Normal);
-                ProcessResult::ModeChanged(VimMode::Normal)
+                ProcessResult::ModeChanged(VimMode::Normal, None)
             }
             VimMode::Normal | VimMode::Visual => {
                 self.set_mode(VimMode::Insert);
-                ProcessResult::ModeChanged(VimMode::Insert)
+                ProcessResult::ModeChanged(VimMode::Insert, None)
             }
         }
     }
@@ -155,7 +196,7 @@ impl VimState {
         // Escape always goes to insert mode
         if keycode == KeyCode::Escape {
             self.set_mode(VimMode::Insert);
-            return ProcessResult::ModeChanged(VimMode::Insert);
+            return ProcessResult::ModeChanged(VimMode::Insert, None);
         }
 
         // Handle pending g
@@ -191,58 +232,57 @@ impl VimState {
         // Escape exits visual mode
         if keycode == KeyCode::Escape {
             self.set_mode(VimMode::Normal);
-            return ProcessResult::ModeChanged(VimMode::Normal);
+            return ProcessResult::ModeChanged(VimMode::Normal, None);
         }
 
         // v toggles back to normal
         if keycode == KeyCode::V {
             self.set_mode(VimMode::Normal);
-            return ProcessResult::ModeChanged(VimMode::Normal);
+            return ProcessResult::ModeChanged(VimMode::Normal, None);
         }
 
         // Handle motions (with selection)
         let count = self.get_count();
         self.pending_count = None;
 
-        let result = match keycode {
-            KeyCode::H => VimCommand::MoveLeft.execute(count, true),
-            KeyCode::J => VimCommand::MoveDown.execute(count, true),
-            KeyCode::K => VimCommand::MoveUp.execute(count, true),
-            KeyCode::L => VimCommand::MoveRight.execute(count, true),
-            KeyCode::W | KeyCode::E => VimCommand::WordForward.execute(count, true),
-            KeyCode::B => VimCommand::WordBackward.execute(count, true),
-            KeyCode::Num0 => VimCommand::LineStart.execute(1, true),
+        match keycode {
+            KeyCode::H => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::MoveLeft, count, select: true
+            }),
+            KeyCode::J => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::MoveDown, count, select: true
+            }),
+            KeyCode::K => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::MoveUp, count, select: true
+            }),
+            KeyCode::L => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::MoveRight, count, select: true
+            }),
+            KeyCode::W | KeyCode::E => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::WordForward, count, select: true
+            }),
+            KeyCode::B => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::WordBackward, count, select: true
+            }),
+            KeyCode::Num0 => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::LineStart, count: 1, select: true
+            }),
 
             // Operations
             KeyCode::D | KeyCode::X => {
-                if keyboard::cut().is_ok() {
-                    self.set_mode(VimMode::Normal);
-                    return ProcessResult::ModeChanged(VimMode::Normal);
-                }
-                return ProcessResult::Suppress;
+                self.set_mode(VimMode::Normal);
+                ProcessResult::ModeChanged(VimMode::Normal, Some(VimAction::Cut))
             }
             KeyCode::Y => {
-                if keyboard::copy().is_ok() {
-                    self.set_mode(VimMode::Normal);
-                    return ProcessResult::ModeChanged(VimMode::Normal);
-                }
-                return ProcessResult::Suppress;
+                self.set_mode(VimMode::Normal);
+                ProcessResult::ModeChanged(VimMode::Normal, Some(VimAction::Copy))
             }
             KeyCode::C => {
-                if keyboard::cut().is_ok() {
-                    self.set_mode(VimMode::Insert);
-                    return ProcessResult::ModeChanged(VimMode::Insert);
-                }
-                return ProcessResult::Suppress;
+                self.set_mode(VimMode::Insert);
+                ProcessResult::ModeChanged(VimMode::Insert, Some(VimAction::Cut))
             }
 
-            _ => return ProcessResult::PassThrough,
-        };
-
-        if result.is_ok() {
-            ProcessResult::Suppress
-        } else {
-            ProcessResult::PassThrough
+            _ => ProcessResult::PassThrough,
         }
     }
 
@@ -250,30 +290,48 @@ impl VimState {
         let count = self.get_count();
         self.pending_count = None;
 
-        let result = match keycode {
+        match keycode {
             // Basic motions
-            KeyCode::H => VimCommand::MoveLeft.execute(count, false),
-            KeyCode::J => VimCommand::MoveDown.execute(count, false),
-            KeyCode::K => VimCommand::MoveUp.execute(count, false),
-            KeyCode::L => VimCommand::MoveRight.execute(count, false),
+            KeyCode::H => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::MoveLeft, count, select: false
+            }),
+            KeyCode::J => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::MoveDown, count, select: false
+            }),
+            KeyCode::K => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::MoveUp, count, select: false
+            }),
+            KeyCode::L => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::MoveRight, count, select: false
+            }),
 
             // Word motions
-            KeyCode::W => VimCommand::WordForward.execute(count, false),
-            KeyCode::E => VimCommand::WordEnd.execute(count, false),
-            KeyCode::B => VimCommand::WordBackward.execute(count, false),
+            KeyCode::W => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::WordForward, count, select: false
+            }),
+            KeyCode::E => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::WordEnd, count, select: false
+            }),
+            KeyCode::B => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::WordBackward, count, select: false
+            }),
 
             // Line motions
-            KeyCode::Num0 => VimCommand::LineStart.execute(1, false),
+            KeyCode::Num0 => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::LineStart, count: 1, select: false
+            }),
 
             // g commands
             KeyCode::G => {
                 if modifiers.shift {
                     // G = go to end
-                    VimCommand::DocumentEnd.execute(1, false)
+                    ProcessResult::SuppressWithAction(VimAction::Command {
+                        command: VimCommand::DocumentEnd, count: 1, select: false
+                    })
                 } else {
                     // g = start g combo
                     self.pending_g = true;
-                    return ProcessResult::Suppress;
+                    ProcessResult::Suppress
                 }
             }
 
@@ -282,95 +340,108 @@ impl VimState {
                 if self.pending_operator == Some(Operator::Delete) {
                     // dd = delete line
                     self.pending_operator = None;
-                    VimCommand::DeleteLine.execute(count, false)
+                    ProcessResult::SuppressWithAction(VimAction::Command {
+                        command: VimCommand::DeleteLine, count, select: false
+                    })
                 } else {
                     self.pending_operator = Some(Operator::Delete);
-                    return ProcessResult::Suppress;
+                    ProcessResult::Suppress
                 }
             }
             KeyCode::Y => {
                 if self.pending_operator == Some(Operator::Yank) {
                     // yy = yank line
                     self.pending_operator = None;
-                    VimCommand::YankLine.execute(count, false)
+                    ProcessResult::SuppressWithAction(VimAction::Command {
+                        command: VimCommand::YankLine, count, select: false
+                    })
                 } else {
                     self.pending_operator = Some(Operator::Yank);
-                    return ProcessResult::Suppress;
+                    ProcessResult::Suppress
                 }
             }
             KeyCode::C => {
                 if self.pending_operator == Some(Operator::Change) {
                     // cc = change line
                     self.pending_operator = None;
-                    if VimCommand::ChangeLine.execute(count, false).is_ok() {
-                        self.set_mode(VimMode::Insert);
-                        return ProcessResult::ModeChanged(VimMode::Insert);
-                    }
-                    return ProcessResult::Suppress;
+                    self.set_mode(VimMode::Insert);
+                    ProcessResult::ModeChanged(VimMode::Insert, Some(VimAction::Command {
+                        command: VimCommand::ChangeLine, count, select: false
+                    }))
                 } else {
                     self.pending_operator = Some(Operator::Change);
-                    return ProcessResult::Suppress;
+                    ProcessResult::Suppress
                 }
             }
 
             // Single-key operations
-            KeyCode::X => VimCommand::DeleteChar.execute(count, false),
+            KeyCode::X => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::DeleteChar, count, select: false
+            }),
 
             // Insert mode entries
             KeyCode::I => {
+                self.set_mode(VimMode::Insert);
                 if modifiers.shift {
                     // I = insert at line start
-                    let _ = VimCommand::InsertAtLineStart.execute(1, false);
+                    ProcessResult::ModeChanged(VimMode::Insert, Some(VimAction::Command {
+                        command: VimCommand::InsertAtLineStart, count: 1, select: false
+                    }))
+                } else {
+                    ProcessResult::ModeChanged(VimMode::Insert, None)
                 }
-                self.set_mode(VimMode::Insert);
-                return ProcessResult::ModeChanged(VimMode::Insert);
             }
             KeyCode::A => {
+                self.set_mode(VimMode::Insert);
                 if modifiers.shift {
                     // A = append at line end
-                    let _ = VimCommand::AppendAtLineEnd.execute(1, false);
+                    ProcessResult::ModeChanged(VimMode::Insert, Some(VimAction::Command {
+                        command: VimCommand::AppendAtLineEnd, count: 1, select: false
+                    }))
                 } else {
                     // a = append after cursor
-                    let _ = VimCommand::AppendAfterCursor.execute(1, false);
+                    ProcessResult::ModeChanged(VimMode::Insert, Some(VimAction::Command {
+                        command: VimCommand::AppendAfterCursor, count: 1, select: false
+                    }))
                 }
-                self.set_mode(VimMode::Insert);
-                return ProcessResult::ModeChanged(VimMode::Insert);
             }
             KeyCode::O => {
-                if modifiers.shift {
-                    let _ = VimCommand::OpenLineAbove.execute(1, false);
-                } else {
-                    let _ = VimCommand::OpenLineBelow.execute(1, false);
-                }
                 self.set_mode(VimMode::Insert);
-                return ProcessResult::ModeChanged(VimMode::Insert);
+                if modifiers.shift {
+                    ProcessResult::ModeChanged(VimMode::Insert, Some(VimAction::Command {
+                        command: VimCommand::OpenLineAbove, count: 1, select: false
+                    }))
+                } else {
+                    ProcessResult::ModeChanged(VimMode::Insert, Some(VimAction::Command {
+                        command: VimCommand::OpenLineBelow, count: 1, select: false
+                    }))
+                }
             }
 
             // Visual mode
             KeyCode::V => {
                 self.set_mode(VimMode::Visual);
-                return ProcessResult::ModeChanged(VimMode::Visual);
+                ProcessResult::ModeChanged(VimMode::Visual, None)
             }
 
             // Clipboard
             KeyCode::P => {
-                if modifiers.shift {
-                    VimCommand::PasteBefore.execute(count, false)
+                let command = if modifiers.shift {
+                    VimCommand::PasteBefore
                 } else {
-                    VimCommand::Paste.execute(count, false)
-                }
+                    VimCommand::Paste
+                };
+                ProcessResult::SuppressWithAction(VimAction::Command {
+                    command, count, select: false
+                })
             }
 
             // Undo/Redo
-            KeyCode::U => VimCommand::Undo.execute(count, false),
+            KeyCode::U => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::Undo, count, select: false
+            }),
 
-            _ => return ProcessResult::PassThrough,
-        };
-
-        if result.is_ok() {
-            ProcessResult::Suppress
-        } else {
-            ProcessResult::PassThrough
+            _ => ProcessResult::PassThrough,
         }
     }
 
@@ -378,35 +449,29 @@ impl VimState {
         let count = self.get_count();
         self.pending_count = None;
 
-        let result = match keycode {
-            KeyCode::F => VimCommand::PageDown.execute(count, false),
-            KeyCode::B => VimCommand::PageUp.execute(count, false),
-            KeyCode::D => VimCommand::HalfPageDown.execute(count, false),
-            KeyCode::U => VimCommand::HalfPageUp.execute(count, false),
-            KeyCode::R => VimCommand::Redo.execute(count, false),
+        let command = match keycode {
+            KeyCode::F => VimCommand::PageDown,
+            KeyCode::B => VimCommand::PageUp,
+            KeyCode::D => VimCommand::HalfPageDown,
+            KeyCode::U => VimCommand::HalfPageUp,
+            KeyCode::R => VimCommand::Redo,
             _ => return ProcessResult::PassThrough,
         };
 
-        if result.is_ok() {
-            ProcessResult::Suppress
-        } else {
-            ProcessResult::PassThrough
-        }
+        ProcessResult::SuppressWithAction(VimAction::Command {
+            command, count, select: false
+        })
     }
 
     fn handle_g_combo(&mut self, keycode: KeyCode) -> ProcessResult {
-        let result = match keycode {
+        match keycode {
             KeyCode::G => {
                 // gg = go to start
-                VimCommand::DocumentStart.execute(1, false)
+                ProcessResult::SuppressWithAction(VimAction::Command {
+                    command: VimCommand::DocumentStart, count: 1, select: false
+                })
             }
-            _ => return ProcessResult::PassThrough,
-        };
-
-        if result.is_ok() {
-            ProcessResult::Suppress
-        } else {
-            ProcessResult::PassThrough
+            _ => ProcessResult::PassThrough,
         }
     }
 
@@ -434,15 +499,16 @@ impl VimState {
         };
 
         if let Some(motion) = motion {
-            match operator.execute_with_motion(motion, count) {
-                Ok(enter_insert) => {
-                    if enter_insert {
-                        self.set_mode(VimMode::Insert);
-                        return ProcessResult::ModeChanged(VimMode::Insert);
-                    }
-                    ProcessResult::Suppress
-                }
-                Err(_) => ProcessResult::PassThrough,
+            // For change operator, we need to enter insert mode after the action
+            if operator == Operator::Change {
+                self.set_mode(VimMode::Insert);
+                ProcessResult::ModeChanged(VimMode::Insert, Some(VimAction::OperatorMotion {
+                    operator, motion, count
+                }))
+            } else {
+                ProcessResult::SuppressWithAction(VimAction::OperatorMotion {
+                    operator, motion, count
+                })
             }
         } else {
             // Invalid motion, reset

@@ -5,13 +5,28 @@ mod vim;
 mod window;
 
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 use tauri::{Emitter, Manager, State};
 
 use config::Settings;
 use ipc::{IpcCommand, IpcResponse};
 use keyboard::{check_accessibility_permission, request_accessibility_permission, KeyboardCapture};
-use vim::{ProcessResult, VimMode, VimState};
+use keyboard::KeyCode;
+use vim::{ProcessResult, VimAction, VimMode, VimState};
 use window::setup_indicator_window;
+
+/// Execute a VimAction on a separate thread with a small delay
+/// This ensures the key event is suppressed before the action executes
+fn execute_action_async(action: VimAction) {
+    thread::spawn(move || {
+        // Small delay to ensure the original key event is fully suppressed
+        thread::sleep(Duration::from_micros(500));
+        if let Err(e) = action.execute() {
+            log::error!("Failed to execute vim action: {}", e);
+        }
+    });
+}
 
 /// Application state shared across commands
 pub struct AppState {
@@ -86,11 +101,51 @@ pub fn run() {
 
     // Set up the callback
     keyboard_capture.set_callback(move |event| {
-        let mut state = vim_state_for_callback.lock().unwrap();
-        match state.process_key(event) {
-            ProcessResult::Suppress => None,
-            ProcessResult::PassThrough => Some(event),
-            ProcessResult::ModeChanged(_mode) => None,
+        // Check for hyper+0 (Cmd+Ctrl+Option+Shift+0) to toggle vim mode
+        if event.is_key_down {
+            let is_hyper = event.modifiers.command
+                && event.modifiers.control
+                && event.modifiers.option
+                && event.modifiers.shift;
+
+            if is_hyper && event.keycode() == Some(KeyCode::Num0) {
+                let mut state = vim_state_for_callback.lock().unwrap();
+                let new_mode = state.toggle_mode();
+                log::info!("Hyper+0: toggled vim mode to {:?}", new_mode);
+                return None; // Suppress the key event
+            }
+        }
+
+        // Process the key and get the result
+        // Release the lock before executing any action
+        let result = {
+            let mut state = vim_state_for_callback.lock().unwrap();
+            state.process_key(event)
+        };
+
+        match result {
+            ProcessResult::Suppress => {
+                log::debug!("Suppress: keycode={}", event.code);
+                None
+            }
+            ProcessResult::SuppressWithAction(ref action) => {
+                log::debug!("SuppressWithAction: keycode={}, action={:?}", event.code, action);
+                // Execute action asynchronously after suppressing the key
+                execute_action_async(action.clone());
+                None
+            }
+            ProcessResult::PassThrough => {
+                log::debug!("PassThrough: keycode={}", event.code);
+                Some(event)
+            }
+            ProcessResult::ModeChanged(_mode, action) => {
+                log::debug!("ModeChanged: keycode={}", event.code);
+                // Execute action asynchronously if present
+                if let Some(action) = action {
+                    execute_action_async(action);
+                }
+                None
+            }
         }
     });
 
