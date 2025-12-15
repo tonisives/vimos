@@ -60,10 +60,14 @@ fn get_settings(state: State<AppState>) -> Settings {
 }
 
 #[tauri::command]
-fn set_settings(state: State<AppState>, new_settings: Settings) -> Result<(), String> {
+fn set_settings(app: AppHandle, state: State<AppState>, new_settings: Settings) -> Result<(), String> {
     let mut settings = state.settings.lock().unwrap();
-    *settings = new_settings;
-    settings.save()
+    *settings = new_settings.clone();
+    settings.save()?;
+
+    // Emit settings-changed event so windows can update
+    let _ = app.emit("settings-changed", new_settings);
+    Ok(())
 }
 
 #[tauri::command]

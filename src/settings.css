@@ -4,11 +4,53 @@
   box-sizing: border-box;
 }
 
+:root {
+  --bg-primary: #f5f5f7;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e5e5e7;
+  --text-primary: #1d1d1f;
+  --text-secondary: #86868b;
+  --border-color: #d2d2d7;
+  --border-light: #e5e5e7;
+  --accent-color: #0071e3;
+  --accent-hover: rgba(0, 113, 227, 0.15);
+  --accent-bg: rgba(0, 113, 227, 0.05);
+  --danger-color: #ff3b30;
+  --danger-bg: rgba(255, 59, 48, 0.1);
+  --hover-bg: rgba(0, 0, 0, 0.05);
+  --saving-bg: #1d1d1f;
+  --saving-text: #ffffff;
+  --slider-thumb-bg: #ffffff;
+  --slider-thumb-shadow: rgba(0, 0, 0, 0.15);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #1c1c1e;
+    --bg-secondary: #2c2c2e;
+    --bg-tertiary: #3a3a3c;
+    --text-primary: #f5f5f7;
+    --text-secondary: #98989d;
+    --border-color: #48484a;
+    --border-light: #3a3a3c;
+    --accent-color: #0a84ff;
+    --accent-hover: rgba(10, 132, 255, 0.25);
+    --accent-bg: rgba(10, 132, 255, 0.1);
+    --danger-color: #ff453a;
+    --danger-bg: rgba(255, 69, 58, 0.15);
+    --hover-bg: rgba(255, 255, 255, 0.08);
+    --saving-bg: #f5f5f7;
+    --saving-text: #1c1c1e;
+    --slider-thumb-bg: #ffffff;
+    --slider-thumb-shadow: rgba(0, 0, 0, 0.4);
+  }
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
-  background: #f5f5f7;
-  color: #1d1d1f;
+  background: var(--bg-primary);
+  color: var(--text-primary);
   line-height: 1.4;
 }
 
@@ -17,7 +59,7 @@ body {
   align-items: center;
   justify-content: center;
   height: 100vh;
-  color: #86868b;
+  color: var(--text-secondary);
 }
 
 .settings-container {
@@ -30,9 +72,9 @@ body {
 .tabs {
   display: flex;
   gap: 2px;
-  background: #e5e5e7;
+  background: var(--bg-tertiary);
   padding: 8px 12px 0;
-  border-bottom: 1px solid #d2d2d7;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .tab {
@@ -44,20 +86,20 @@ body {
   border: none;
   border-radius: 6px 6px 0 0;
   cursor: pointer;
-  color: #86868b;
+  color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
   transition: all 0.15s ease;
 }
 
 .tab:hover {
-  background: rgba(0, 0, 0, 0.05);
-  color: #1d1d1f;
+  background: var(--hover-bg);
+  color: var(--text-primary);
 }
 
 .tab.active {
-  background: #fff;
-  color: #1d1d1f;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 .tab-icon {
@@ -67,7 +109,7 @@ body {
 /* Tab content */
 .tab-content {
   flex: 1;
-  background: #fff;
+  background: var(--bg-secondary);
   padding: 20px;
   overflow-y: auto;
 }
@@ -77,18 +119,18 @@ body {
   font-size: 17px;
   font-weight: 600;
   margin-bottom: 16px;
-  color: #1d1d1f;
+  color: var(--text-primary);
 }
 
 .settings-section h3 {
   font-size: 14px;
   font-weight: 600;
   margin: 20px 0 12px;
-  color: #1d1d1f;
+  color: var(--text-primary);
 }
 
 .section-description {
-  color: #86868b;
+  color: var(--text-secondary);
   margin-bottom: 16px;
 }
 
@@ -101,25 +143,25 @@ body {
   display: block;
   margin-bottom: 6px;
   font-weight: 500;
-  color: #1d1d1f;
+  color: var(--text-primary);
 }
 
 .form-group select {
   width: 100%;
   max-width: 250px;
   padding: 8px 12px;
-  border: 1px solid #d2d2d7;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
-  background: #fff;
+  background: var(--bg-secondary);
   font-size: 13px;
-  color: #1d1d1f;
+  color: var(--text-primary);
   cursor: pointer;
 }
 
 .form-group select:focus {
   outline: none;
-  border-color: #0071e3;
-  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.15);
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px var(--accent-hover);
 }
 
 /* Checkbox */
@@ -160,7 +202,7 @@ body {
   width: 100%;
   height: 4px;
   border-radius: 2px;
-  background: #d2d2d7;
+  background: var(--border-color);
   appearance: none;
   cursor: pointer;
 }
@@ -170,9 +212,9 @@ body {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #fff;
-  border: 1px solid #d2d2d7;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  background: var(--slider-thumb-bg);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 1px 3px var(--slider-thumb-shadow);
   cursor: pointer;
 }
 
@@ -185,7 +227,7 @@ body {
   justify-content: space-between;
   margin-top: 4px;
   font-size: 11px;
-  color: #86868b;
+  color: var(--text-secondary);
 }
 
 /* Position options */
@@ -218,7 +260,7 @@ body {
 }
 
 .radio-label:hover {
-  background: #f5f5f7;
+  background: var(--bg-primary);
 }
 
 .radio-label input[type="radio"] {
@@ -240,7 +282,7 @@ body {
 
 .help-text {
   font-size: 12px;
-  color: #86868b;
+  color: var(--text-secondary);
   margin-bottom: 8px;
 }
 
@@ -251,12 +293,12 @@ body {
 .electron-apps-section {
   margin-top: 24px;
   padding-top: 16px;
-  border-top: 1px solid #e5e5e7;
+  border-top: 1px solid var(--border-light);
 }
 
 /* App list */
 .app-list {
-  background: #f5f5f7;
+  background: var(--bg-primary);
   border-radius: 8px;
   overflow: hidden;
   margin-bottom: 12px;
@@ -273,7 +315,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px;
-  border-bottom: 1px solid #e5e5e7;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .app-list-item:last-child {
@@ -283,21 +325,21 @@ body {
 .app-bundle-id {
   font-family: "SF Mono", Monaco, monospace;
   font-size: 12px;
-  color: #1d1d1f;
+  color: var(--text-primary);
   word-break: break-all;
 }
 
 .app-list-empty {
   padding: 20px;
   text-align: center;
-  color: #86868b;
+  color: var(--text-secondary);
   font-style: italic;
 }
 
 .remove-button {
   background: none;
   border: none;
-  color: #ff3b30;
+  color: var(--danger-color);
   cursor: pointer;
   padding: 4px 8px;
   border-radius: 4px;
@@ -308,7 +350,7 @@ body {
 
 .remove-button:hover {
   opacity: 1;
-  background: rgba(255, 59, 48, 0.1);
+  background: var(--danger-bg);
 }
 
 .add-button {
@@ -316,8 +358,8 @@ body {
   padding: 10px;
   background: transparent;
   border: none;
-  border-top: 1px solid #e5e5e7;
-  color: #0071e3;
+  border-top: 1px solid var(--border-light);
+  color: var(--accent-color);
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
@@ -325,7 +367,7 @@ body {
 }
 
 .add-button:hover {
-  background: rgba(0, 113, 227, 0.05);
+  background: var(--accent-bg);
 }
 
 /* Saving indicator */
@@ -333,8 +375,8 @@ body {
   position: fixed;
   bottom: 16px;
   right: 16px;
-  background: #1d1d1f;
-  color: #fff;
+  background: var(--saving-bg);
+  color: var(--saving-text);
   padding: 8px 16px;
   border-radius: 6px;
   font-size: 12px;
