@@ -5,7 +5,7 @@ use tokio::net::{UnixListener, UnixStream};
 /// Get the socket path for IPC
 pub fn socket_path() -> PathBuf {
     let runtime_dir = dirs::runtime_dir()
-        .or_else(|| dirs::cache_dir())
+        .or_else(dirs::cache_dir)
         .unwrap_or_else(|| PathBuf::from("/tmp"));
     runtime_dir.join("ti-vim.sock")
 }

@@ -23,7 +23,6 @@ type TabId = "general" | "indicator" | "widgets" | "ignored";
 export function SettingsApp() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("general");
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     invoke<Settings>("get_settings")
@@ -36,14 +35,11 @@ export function SettingsApp() {
 
     const newSettings = { ...settings, ...updates };
     setSettings(newSettings);
-    setSaving(true);
 
     try {
       await invoke("set_settings", { newSettings });
     } catch (e) {
       console.error("Failed to save settings:", e);
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -88,7 +84,6 @@ export function SettingsApp() {
         )}
       </div>
 
-      {saving && <div className="saving-indicator">Saving...</div>}
     </div>
   );
 }

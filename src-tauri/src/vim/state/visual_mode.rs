@@ -153,7 +153,7 @@ impl VimState {
         }
     }
 
-    fn handle_visual_text_object(&mut self, keycode: KeyCode, modifier: TextObjectModifier) -> ProcessResult {
+    fn handle_visual_text_object(&self, keycode: KeyCode, modifier: TextObjectModifier) -> ProcessResult {
         // In visual mode, text objects extend the selection
         if keycode == KeyCode::W {
             let text_object = match modifier {

@@ -190,7 +190,7 @@ impl KeyCode {
     }
 
     /// Convert a numeric keycode to its digit value
-    pub fn to_digit(&self) -> Option<u32> {
+    pub fn to_digit(self) -> Option<u32> {
         match self {
             Self::Num0 => Some(0),
             Self::Num1 => Some(1),
@@ -207,7 +207,7 @@ impl KeyCode {
     }
 
     /// Convert keycode to character (for r{char} replacement)
-    pub fn to_char(&self) -> Option<char> {
+    pub fn to_char(self) -> Option<char> {
         match self {
             Self::A => Some('a'),
             Self::B => Some('b'),
@@ -278,7 +278,7 @@ impl Modifiers {
         }
     }
 
-    pub fn to_cg_flags(&self) -> u64 {
+    pub fn to_cg_flags(self) -> u64 {
         let mut flags = 0u64;
         if self.shift {
             flags |= 0x00020000;

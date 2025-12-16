@@ -39,7 +39,7 @@ thiserror = "2"
 anyhow = "1"
 
 # Directories
-dirs = "5"
+dirs = "6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"
@@ -55,5 +55,5 @@ unused = "deny"
 
 [lints.clippy]
 all = "deny"
-pedantic = "warn"
-nursery = "warn"
+# Selectively enable useful pedantic lints
+needless_pass_by_ref_mut = "deny"

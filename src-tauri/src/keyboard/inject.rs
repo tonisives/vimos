@@ -52,8 +52,6 @@ pub enum ArrowDirection {
     Down,
 }
 
-/// Common key injection helpers for vim operations
-
 /// Move cursor left (h)
 pub fn cursor_left(count: u32, select: bool) -> Result<(), String> {
     let mods = if select {

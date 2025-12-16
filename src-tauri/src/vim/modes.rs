@@ -1,21 +1,16 @@
 use serde::{Deserialize, Serialize};
 
 /// The three vim modes
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum VimMode {
     /// Normal typing mode
+    #[default]
     Insert,
     /// Vim command mode (hjkl navigation, operators)
     Normal,
     /// Visual selection mode
     Visual,
-}
-
-impl Default for VimMode {
-    fn default() -> Self {
-        Self::Insert
-    }
 }
 
 impl VimMode {

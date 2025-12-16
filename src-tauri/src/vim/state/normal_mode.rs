@@ -389,7 +389,7 @@ impl VimState {
         self.pending_count = None;
 
         // Only handle letter and number keys for replacement
-        if let Some(_) = keycode.to_char() {
+        if keycode.to_char().is_some() {
             ProcessResult::SuppressWithAction(VimAction::ReplaceChar {
                 keycode,
                 shift: modifiers.shift,
