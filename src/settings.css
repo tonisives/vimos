@@ -366,3 +366,44 @@ body {
   background: var(--accent-bg);
 }
 
+/* Key selector with record button */
+.key-selector {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.key-selector select {
+  flex: 1;
+  min-width: 220px;
+}
+
+.record-key-btn {
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.record-key-btn:hover {
+  background: var(--hover-bg);
+  border-color: var(--accent-color);
+}
+
+.record-key-btn.recording {
+  background: var(--accent-bg);
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+

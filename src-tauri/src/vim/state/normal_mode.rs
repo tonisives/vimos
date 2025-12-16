@@ -109,6 +109,10 @@ impl VimState {
             KeyCode::Num6 if modifiers.shift => ProcessResult::SuppressWithAction(VimAction::Command {
                 command: VimCommand::LineStart, count: 1, select: false
             }),
+            // _ = first non-blank character (Shift+Minus)
+            KeyCode::Minus if modifiers.shift => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::LineStart, count: 1, select: false
+            }),
 
             // Paragraph motions { and } (Shift+[ and Shift+])
             KeyCode::LeftBracket if modifiers.shift => ProcessResult::SuppressWithAction(VimAction::Command {
@@ -531,6 +535,8 @@ impl VimState {
             KeyCode::Num4 if modifiers.shift => Some(VimCommand::LineEnd),
             // ^ = line start
             KeyCode::Num6 if modifiers.shift => Some(VimCommand::LineStart),
+            // _ = first non-blank character
+            KeyCode::Minus if modifiers.shift => Some(VimCommand::LineStart),
             // { = paragraph up
             KeyCode::LeftBracket if modifiers.shift => Some(VimCommand::ParagraphUp),
             // } = paragraph down

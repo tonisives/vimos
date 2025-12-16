@@ -40,8 +40,6 @@ pub enum IndentDirection {
 /// Vim state machine
 pub struct VimState {
     mode: VimMode,
-    /// The key that toggles vim mode (default: CapsLock)
-    vim_key: KeyCode,
     /// Pending count for repeat (e.g., "5" in "5j")
     pending_count: Option<u32>,
     /// Pending operator (d, y, c)
@@ -64,7 +62,6 @@ impl VimState {
         (
             Self {
                 mode: VimMode::Insert,
-                vim_key: KeyCode::CapsLock,
                 pending_count: None,
                 pending_operator: None,
                 pending_g: false,
@@ -163,11 +160,6 @@ impl VimState {
             None => return ProcessResult::PassThrough,
         };
 
-        // Check for vim key toggle
-        if keycode == self.vim_key {
-            return self.handle_vim_key();
-        }
-
         match self.mode {
             VimMode::Insert => ProcessResult::PassThrough,
             VimMode::Normal => self.process_normal_mode(keycode, &event.modifiers),
@@ -209,7 +201,8 @@ impl VimState {
         }
     }
 
-    fn handle_vim_key(&mut self) -> ProcessResult {
+    /// Handle vim key toggle (called externally from keyboard callback)
+    pub fn handle_vim_key(&mut self) -> ProcessResult {
         match self.mode {
             VimMode::Insert => {
                 self.set_mode(VimMode::Normal);

@@ -5,8 +5,16 @@ import { IndicatorSettings } from "./IndicatorSettings";
 import { WidgetSettings } from "./WidgetSettings";
 import { IgnoredAppsSettings } from "./IgnoredAppsSettings";
 
+export interface VimKeyModifiers {
+  shift: boolean;
+  control: boolean;
+  option: boolean;
+  command: boolean;
+}
+
 export interface Settings {
   vim_key: string;
+  vim_key_modifiers: VimKeyModifiers;
   indicator_position: number;
   indicator_opacity: number;
   indicator_size: number;

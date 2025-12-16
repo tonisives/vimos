@@ -35,11 +35,30 @@ fn execute_action_async(action: VimAction) {
     });
 }
 
+/// Recorded key info returned to frontend
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RecordedKey {
+    pub name: String,
+    pub display_name: String,
+    pub modifiers: RecordedModifiers,
+}
+
+/// Modifier state for recorded key
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RecordedModifiers {
+    pub shift: bool,
+    pub control: bool,
+    pub option: bool,
+    pub command: bool,
+}
+
 /// Application state shared across commands
 pub struct AppState {
     settings: Arc<Mutex<Settings>>,
     vim_state: Arc<Mutex<VimState>>,
     keyboard_capture: KeyboardCapture,
+    /// One-shot channel to receive recorded key
+    record_key_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<RecordedKey>>>>,
 }
 
 // Tauri commands
@@ -162,6 +181,29 @@ fn get_pending_keys(state: State<AppState>) -> String {
     vim_state.get_pending_keys()
 }
 
+#[tauri::command]
+fn get_key_display_name(key_name: String) -> Option<String> {
+    KeyCode::from_name(&key_name).map(|k| k.to_display_name().to_string())
+}
+
+#[tauri::command]
+async fn record_key(state: State<'_, AppState>) -> Result<RecordedKey, String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+
+    {
+        let mut record_tx = state.record_key_tx.lock().unwrap();
+        *record_tx = Some(tx);
+    }
+
+    rx.await.map_err(|_| "Key recording cancelled".to_string())
+}
+
+#[tauri::command]
+fn cancel_record_key(state: State<AppState>) {
+    let mut record_tx = state.record_key_tx.lock().unwrap();
+    *record_tx = None;
+}
+
 // Helper functions
 
 /// Get the bundle identifier of the frontmost (currently focused) application
@@ -206,38 +248,71 @@ fn is_frontmost_app_ignored(ignored_apps: &[String]) -> bool {
 fn create_keyboard_callback(
     vim_state: Arc<Mutex<VimState>>,
     settings: Arc<Mutex<Settings>>,
+    record_key_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<RecordedKey>>>>,
 ) -> impl Fn(KeyEvent) -> Option<KeyEvent> + Send + 'static {
     move |event| {
-        // Check for hyper+0 (Cmd+Ctrl+Option+Shift+0) to toggle vim mode
+        // Check if we're recording a key (only on key down)
         if event.is_key_down {
-            let is_hyper = event.modifiers.command
-                && event.modifiers.control
-                && event.modifiers.option
-                && event.modifiers.shift;
-
-            if is_hyper && event.keycode() == Some(KeyCode::Num0) {
-                // Check if app is ignored before entering vim mode
-                let ignored_apps = settings.lock().unwrap().ignored_apps.clone();
-                if is_frontmost_app_ignored(&ignored_apps) {
-                    log::debug!("Hyper+0: ignored app, passing through");
-                    return Some(event);
+            let mut record_tx = record_key_tx.lock().unwrap();
+            if let Some(tx) = record_tx.take() {
+                if let Some(keycode) = event.keycode() {
+                    let recorded = RecordedKey {
+                        name: keycode.to_name().to_string(),
+                        display_name: keycode.to_display_name().to_string(),
+                        modifiers: RecordedModifiers {
+                            shift: event.modifiers.shift,
+                            control: event.modifiers.control,
+                            option: event.modifiers.option,
+                            command: event.modifiers.command,
+                        },
+                    };
+                    let _ = tx.send(recorded);
+                    // Suppress the key so it doesn't trigger vim mode or other actions
+                    return None;
                 }
-                let mut state = vim_state.lock().unwrap();
-                let new_mode = state.toggle_mode();
-                log::info!("Hyper+0: toggled vim mode to {:?}", new_mode);
-                return None;
             }
         }
 
-        // Check if this is the vim key (CapsLock) trying to enter Normal mode
-        // Only check ignored apps when transitioning from Insert to Normal
-        if event.is_key_down && event.keycode() == Some(KeyCode::CapsLock) {
-            let current_mode = vim_state.lock().unwrap().mode();
-            if current_mode == VimMode::Insert {
-                let ignored_apps = settings.lock().unwrap().ignored_apps.clone();
-                if is_frontmost_app_ignored(&ignored_apps) {
-                    log::debug!("CapsLock: ignored app, passing through");
-                    return Some(event);
+        // Check if this is the configured vim key with matching modifiers
+        if event.is_key_down {
+            let settings_guard = settings.lock().unwrap();
+            let vim_key = KeyCode::from_name(&settings_guard.vim_key);
+            let mods = &settings_guard.vim_key_modifiers;
+
+            let modifiers_match = event.modifiers.shift == mods.shift
+                && event.modifiers.control == mods.control
+                && event.modifiers.option == mods.option
+                && event.modifiers.command == mods.command;
+
+            if let Some(configured_key) = vim_key {
+                if event.keycode() == Some(configured_key) && modifiers_match {
+                    let ignored_apps = settings_guard.ignored_apps.clone();
+                    drop(settings_guard);
+
+                    let current_mode = vim_state.lock().unwrap().mode();
+                    if current_mode == VimMode::Insert {
+                        if is_frontmost_app_ignored(&ignored_apps) {
+                            log::debug!("Vim key: ignored app, passing through");
+                            return Some(event);
+                        }
+                    }
+
+                    // Handle vim key toggle
+                    let result = {
+                        let mut state = vim_state.lock().unwrap();
+                        state.handle_vim_key()
+                    };
+
+                    return match result {
+                        ProcessResult::ModeChanged(_mode, action) => {
+                            log::debug!("Vim key: ModeChanged");
+                            if let Some(action) = action {
+                                execute_action_async(action);
+                            }
+                            None
+                        }
+                        _ => None,
+                    };
                 }
             }
         }
@@ -336,17 +411,21 @@ pub fn run() {
     let vim_state = Arc::new(Mutex::new(vim_state));
 
     let settings = Arc::new(Mutex::new(Settings::load()));
+    let record_key_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<RecordedKey>>>> =
+        Arc::new(Mutex::new(None));
 
     let keyboard_capture = KeyboardCapture::new();
     keyboard_capture.set_callback(create_keyboard_callback(
         Arc::clone(&vim_state),
         Arc::clone(&settings),
+        Arc::clone(&record_key_tx),
     ));
 
     let app_state = AppState {
         settings,
         vim_state: Arc::clone(&vim_state),
         keyboard_capture,
+        record_key_tx,
     };
 
     let mode_rx = Arc::new(Mutex::new(mode_rx));
@@ -369,6 +448,9 @@ pub fn run() {
             get_battery_info,
             get_caps_lock_state,
             get_pending_keys,
+            get_key_display_name,
+            record_key,
+            cancel_record_key,
         ])
         .setup(move |app| {
             // Hide dock icon - this is a menu bar app

@@ -1,12 +1,24 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Modifier keys for vim key activation
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VimKeyModifiers {
+    pub shift: bool,
+    pub control: bool,
+    pub option: bool,
+    pub command: bool,
+}
+
 /// Application settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     /// The key that toggles vim mode (keycode string)
     pub vim_key: String,
+    /// Modifier keys required for vim key activation
+    #[serde(default)]
+    pub vim_key_modifiers: VimKeyModifiers,
     /// Indicator window position (0-5 for 2x3 grid)
     pub indicator_position: u8,
     /// Indicator opacity (0.0 - 1.0)
@@ -31,6 +43,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             vim_key: "caps_lock".to_string(),
+            vim_key_modifiers: VimKeyModifiers::default(),
             indicator_position: 1, // Top center
             indicator_opacity: 0.9,
             indicator_size: 1.0,

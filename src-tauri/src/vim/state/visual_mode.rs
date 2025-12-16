@@ -81,6 +81,10 @@ impl VimState {
             KeyCode::Num6 if modifiers.shift => ProcessResult::SuppressWithAction(VimAction::Command {
                 command: VimCommand::LineStart, count: 1, select: true
             }),
+            // _ = first non-blank character
+            KeyCode::Minus if modifiers.shift => ProcessResult::SuppressWithAction(VimAction::Command {
+                command: VimCommand::LineStart, count: 1, select: true
+            }),
 
             // Paragraph motions
             KeyCode::LeftBracket if modifiers.shift => ProcessResult::SuppressWithAction(VimAction::Command {
