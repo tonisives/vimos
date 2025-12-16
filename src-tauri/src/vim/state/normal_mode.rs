@@ -36,11 +36,14 @@ impl VimState {
         }
 
         // Handle count accumulation (1-9, then 0-9)
-        if let Some(digit) = keycode.to_digit() {
-            if digit != 0 || self.pending_count.is_some() {
-                let current = self.pending_count.unwrap_or(0);
-                self.pending_count = Some(current * 10 + digit);
-                return ProcessResult::Suppress;
+        // Only accumulate if shift is NOT pressed (shift+number = special chars like $ ^)
+        if !modifiers.shift {
+            if let Some(digit) = keycode.to_digit() {
+                if digit != 0 || self.pending_count.is_some() {
+                    let current = self.pending_count.unwrap_or(0);
+                    self.pending_count = Some(current * 10 + digit);
+                    return ProcessResult::Suppress;
+                }
             }
         }
 
