@@ -310,10 +310,10 @@ function Indicator() {
 
   const bgColor =
     mode === "insert"
-      ? `rgba(76, 175, 80, ${opacity})`
+      ? `rgba(74, 144, 217, ${opacity})`
       : mode === "normal"
-        ? `rgba(33, 150, 243, ${opacity})`
-        : `rgba(255, 152, 0, ${opacity})`
+        ? `rgba(232, 148, 74, ${opacity})`
+        : `rgba(155, 109, 215, ${opacity})`
 
   const topWidget = settings?.top_widget ?? "None"
   const bottomWidget = settings?.bottom_widget ?? "None"

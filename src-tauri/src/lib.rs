@@ -4,6 +4,7 @@
 mod config;
 pub mod ipc;
 mod keyboard;
+mod nvim_edit;
 mod vim;
 mod widgets;
 mod window;
@@ -22,8 +23,46 @@ use objc::{class, msg_send, sel, sel_impl};
 use config::Settings;
 use ipc::{IpcCommand, IpcResponse};
 use keyboard::{check_accessibility_permission, request_accessibility_permission, KeyboardCapture, KeyCode, KeyEvent};
+use nvim_edit::EditSessionManager;
 use vim::{ProcessResult, VimAction, VimMode, VimState};
 use window::setup_indicator_window;
+
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::sync::OnceLock;
+
+static LOG_FILE: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
+
+fn init_file_logger() {
+    // Create/truncate the log file
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open("/tmp/ovim-rust.log")
+        .expect("Failed to create log file");
+
+    LOG_FILE.set(Mutex::new(file)).ok();
+
+    // Set up env_logger to also write to our file
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format(|buf, record| {
+            let timestamp = chrono::Local::now().format("%H:%M:%S%.3f");
+            let line = format!("[{}] {} - {}\n", timestamp, record.level(), record.args());
+
+            // Write to file
+            if let Some(file_mutex) = LOG_FILE.get() {
+                if let Ok(mut file) = file_mutex.lock() {
+                    let _ = file.write_all(line.as_bytes());
+                    let _ = file.flush();
+                }
+            }
+
+            // Also write to stderr
+            write!(buf, "{}", line)
+        })
+        .init();
+}
 
 /// Execute a VimAction on a separate thread with a small delay
 fn execute_action_async(action: VimAction) {
@@ -59,6 +98,9 @@ pub struct AppState {
     keyboard_capture: KeyboardCapture,
     /// One-shot channel to receive recorded key
     record_key_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<RecordedKey>>>>,
+    /// Edit session manager for "Edit with Neovim" feature
+    #[allow(dead_code)]
+    edit_session_manager: Arc<EditSessionManager>,
 }
 
 // Tauri commands
@@ -204,6 +246,32 @@ fn cancel_record_key(state: State<AppState>) {
     *record_tx = None;
 }
 
+/// Log message from webview to /tmp/ovim-webview.log
+#[tauri::command]
+fn webview_log(level: String, message: String) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+
+    let timestamp = chrono::Local::now().format("%H:%M:%S%.3f");
+    let line = format!("[{}] {} - {}\n", timestamp, level.to_uppercase(), message);
+
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/ovim-webview.log")
+    {
+        let _ = file.write_all(line.as_bytes());
+    }
+
+    // Also log to rust logger
+    match level.to_lowercase().as_str() {
+        "error" => log::error!("[webview] {}", message),
+        "warn" => log::warn!("[webview] {}", message),
+        "debug" => log::debug!("[webview] {}", message),
+        _ => log::info!("[webview] {}", message),
+    }
+}
+
 // Helper functions
 
 /// Get the bundle identifier of the frontmost (currently focused) application
@@ -249,6 +317,7 @@ fn create_keyboard_callback(
     vim_state: Arc<Mutex<VimState>>,
     settings: Arc<Mutex<Settings>>,
     record_key_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<RecordedKey>>>>,
+    edit_session_manager: Arc<EditSessionManager>,
 ) -> impl Fn(KeyEvent) -> Option<KeyEvent> + Send + 'static {
     move |event| {
         // Check if we're recording a key (only on key down)
@@ -269,6 +338,39 @@ fn create_keyboard_callback(
                     let _ = tx.send(recorded);
                     // Suppress the key so it doesn't trigger vim mode or other actions
                     return None;
+                }
+            }
+        }
+
+        // Check if this is the configured nvim edit shortcut
+        if event.is_key_down {
+            let settings_guard = settings.lock().unwrap();
+            let nvim_settings = &settings_guard.nvim_edit;
+
+            if nvim_settings.enabled {
+                let nvim_key = KeyCode::from_name(&nvim_settings.shortcut_key);
+                let mods = &nvim_settings.shortcut_modifiers;
+
+                let modifiers_match = event.modifiers.shift == mods.shift
+                    && event.modifiers.control == mods.control
+                    && event.modifiers.option == mods.option
+                    && event.modifiers.command == mods.command;
+
+                if let Some(configured_key) = nvim_key {
+                    if event.keycode() == Some(configured_key) && modifiers_match {
+                        let nvim_settings_clone = nvim_settings.clone();
+                        drop(settings_guard);
+
+                        // Trigger nvim edit
+                        let manager = Arc::clone(&edit_session_manager);
+                        thread::spawn(move || {
+                            if let Err(e) = nvim_edit::trigger_nvim_edit(manager, nvim_settings_clone) {
+                                log::error!("Failed to trigger nvim edit: {}", e);
+                            }
+                        });
+
+                        return None; // Suppress the key
+                    }
                 }
             }
         }
@@ -405,7 +507,9 @@ fn handle_set_mode(state: &mut VimState, app_handle: &AppHandle, mode_str: &str)
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
+    // Initialize file-based logging to /tmp/ovim-rust.log
+    init_file_logger();
+    log::info!("ovim-rust started");
 
     let (vim_state, mode_rx) = VimState::new();
     let vim_state = Arc::new(Mutex::new(vim_state));
@@ -413,12 +517,14 @@ pub fn run() {
     let settings = Arc::new(Mutex::new(Settings::load()));
     let record_key_tx: Arc<Mutex<Option<tokio::sync::oneshot::Sender<RecordedKey>>>> =
         Arc::new(Mutex::new(None));
+    let edit_session_manager = Arc::new(EditSessionManager::new());
 
     let keyboard_capture = KeyboardCapture::new();
     keyboard_capture.set_callback(create_keyboard_callback(
         Arc::clone(&vim_state),
         Arc::clone(&settings),
         Arc::clone(&record_key_tx),
+        Arc::clone(&edit_session_manager),
     ));
 
     let app_state = AppState {
@@ -426,6 +532,7 @@ pub fn run() {
         vim_state: Arc::clone(&vim_state),
         keyboard_capture,
         record_key_tx,
+        edit_session_manager,
     };
 
     let mode_rx = Arc::new(Mutex::new(mode_rx));
@@ -451,6 +558,7 @@ pub fn run() {
             get_key_display_name,
             record_key,
             cancel_record_key,
+            webview_log,
         ])
         .setup(move |app| {
             // Hide dock icon - this is a menu bar app

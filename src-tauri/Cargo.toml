@@ -33,6 +33,7 @@ tokio = { version = "1", features = ["sync", "rt", "net", "io-util", "macros"] }
 # Logging
 log = "0.4"
 env_logger = "0.11"
+chrono = "0.4"
 
 # Error handling
 thiserror = "2"
@@ -40,6 +41,12 @@ anyhow = "1"
 
 # Directories
 dirs = "6"
+
+# UUID for session IDs
+uuid = { version = "1", features = ["v4"] }
+
+# Low-level system calls
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"
