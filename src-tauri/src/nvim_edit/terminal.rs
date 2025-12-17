@@ -98,7 +98,8 @@ fn wait_for_pid(pid: u32) -> Result<(), String> {
             // Process has exited
             break;
         }
-        thread::sleep(Duration::from_millis(100));
+        // Poll very fast (10ms) so we can restore focus before the window closes
+        thread::sleep(Duration::from_millis(10));
     }
 
     Ok(())
@@ -113,15 +114,20 @@ fn spawn_alacritty(nvim_path: &str, file_path: &str, geometry: Option<WindowGeom
     let resolved_nvim = resolve_command_path(nvim_path);
     log::info!("Resolved nvim path: {} -> {}", nvim_path, resolved_nvim);
 
-    // Start the resize watcher BEFORE spawning to minimize flash
-    if let Some(geo) = geometry.clone() {
+    // Start a watcher thread to find the window, set bounds, and focus it
+    {
         let title = unique_title.clone();
+        let geo = geometry.clone();
         std::thread::spawn(move || {
             // Poll rapidly to catch the window as soon as it appears
             for _attempt in 0..200 {
                 if let Some(index) = find_alacritty_window_by_title(&title) {
-                    log::info!("Found window '{}' at index {}, setting bounds", title, index);
-                    set_window_bounds_atomic("Alacritty", index, geo.x, geo.y, geo.width, geo.height);
+                    log::info!("Found window '{}' at index {}", title, index);
+                    if let Some(ref g) = geo {
+                        set_window_bounds_atomic("Alacritty", index, g.x, g.y, g.width, g.height);
+                    }
+                    // Focus the new window
+                    focus_alacritty_window_by_index(index);
                     return;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(10));
@@ -523,6 +529,37 @@ fn set_window_bounds_by_index(app_name: &str, index: usize, x: i32, y: i32, widt
     }
 }
 
+
+/// Focus an Alacritty window by index
+fn focus_alacritty_window_by_index(index: usize) {
+    let script = format!(
+        r#"
+        tell application "System Events"
+            tell process "Alacritty"
+                if (count of windows) >= {} then
+                    set w to window {}
+                    perform action "AXRaise" of w
+                end if
+            end tell
+        end tell
+        tell application "Alacritty" to activate
+        "#,
+        index, index
+    );
+
+    log::info!("Focusing Alacritty window at index {}", index);
+
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output();
+
+    if let Ok(out) = output {
+        if !out.status.success() {
+            log::error!("Failed to focus window: {}", String::from_utf8_lossy(&out.stderr));
+        }
+    }
+}
 
 /// Set window bounds atomically (position and size in one call)
 fn set_window_bounds_atomic(app_name: &str, index: usize, x: i32, y: i32, width: u32, height: u32) {
