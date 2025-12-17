@@ -532,16 +532,20 @@ fn set_window_bounds_by_index(app_name: &str, index: usize, x: i32, y: i32, widt
 
 /// Focus an Alacritty window by index (without bringing all app windows to front)
 fn focus_alacritty_window_by_index(index: usize) {
-    // Use AXRaise to bring the specific window to front, then set frontmost
-    // to give it focus. Avoid "activate" which brings ALL app windows forward.
+    // Use AXRaise to bring the specific window to front and give it keyboard focus.
+    // We avoid "activate" and "set frontmost to true" on the process which bring ALL windows forward.
+    // Instead, we use AXRaise and then simulate a mouse click using CGEvent to focus just this window.
     let script = format!(
         r#"
         tell application "System Events"
             tell process "Alacritty"
                 if (count of windows) >= {} then
                     set w to window {}
+                    -- Raise just this window to the front
                     perform action "AXRaise" of w
-                    set frontmost to true
+                    -- Return the window position for clicking
+                    set winPos to position of w
+                    return (item 1 of winPos) & "," & (item 2 of winPos)
                 end if
             end tell
         end tell
@@ -557,8 +561,49 @@ fn focus_alacritty_window_by_index(index: usize) {
         .output();
 
     if let Ok(out) = output {
-        if !out.status.success() {
+        if out.status.success() {
+            // Parse the position and click to give keyboard focus
+            let pos_str = String::from_utf8_lossy(&out.stdout);
+            let pos_str = pos_str.trim();
+            if let Some((x_str, y_str)) = pos_str.split_once(',') {
+                if let (Ok(x), Ok(y)) = (x_str.trim().parse::<i32>(), y_str.trim().parse::<i32>()) {
+                    // Click inside the window to give it keyboard focus
+                    click_at_position(x + 50, y + 50);
+                }
+            }
+        } else {
             log::error!("Failed to focus window: {}", String::from_utf8_lossy(&out.stderr));
+        }
+    }
+}
+
+/// Click at a screen position using CGEvent (gives keyboard focus to the window)
+fn click_at_position(x: i32, y: i32) {
+    use core_graphics::event::{CGEvent, CGEventTapLocation, CGEventType, CGMouseButton};
+    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+    use core_graphics::geometry::CGPoint;
+
+    let point = CGPoint::new(x as f64, y as f64);
+
+    if let Ok(source) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) {
+        // Mouse down
+        if let Ok(event) = CGEvent::new_mouse_event(
+            source.clone(),
+            CGEventType::LeftMouseDown,
+            point,
+            CGMouseButton::Left,
+        ) {
+            event.post(CGEventTapLocation::HID);
+        }
+
+        // Mouse up
+        if let Ok(event) = CGEvent::new_mouse_event(
+            source,
+            CGEventType::LeftMouseUp,
+            point,
+            CGMouseButton::Left,
+        ) {
+            event.post(CGEventTapLocation::HID);
         }
     }
 }
