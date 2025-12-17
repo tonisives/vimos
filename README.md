@@ -4,8 +4,7 @@ System-wide Vim keybindings for macOS.
 
 OVIM is a lightweight menu bar application that brings Vim's modal editing to every app on your Mac. Press a key to toggle between Insert and Normal mode anywhere - in your browser, text editors, terminal, or any other application.
 
-<!-- TODO: Add hero screenshot or GIF showing OVIM in action -->
-<!-- ![OVIM Demo](screenshots/demo.gif) -->
+![OVIM Modes](docs/images/modes-animated.gif)
 
 ## Features
 
@@ -57,6 +56,8 @@ See [Building from Source](#building-from-source) below.
 The floating indicator shows your current mode:
 - Displayed near the top-left of your screen by default
 - Position, opacity, and size are customizable in Settings
+
+![Mode Indicator](docs/images/indicator-modes-explanation.gif)
 
 ### Accessing Settings
 
@@ -168,19 +169,21 @@ Prefix motions and commands with a number to repeat them:
 - Add applications where OVIM should be disabled
 - Useful for apps with their own Vim mode (e.g., terminal emulators, VS Code with Vim extension)
 
-<!-- TODO: Add screenshots -->
-<!--
 ### Screenshots
 
-#### Settings Window
-![Settings](screenshots/settings.png)
+#### Indicator Position
+![Indicator Position](docs/images/change-indicator-position.gif)
 
-#### Mode Indicator
-![Indicator](screenshots/indicator.png)
+#### Visual Mode with Ctrl+u/d
+![Visual Mode](docs/images/visual-C-u-d.gif)
 
 #### Widgets
-![Widgets](screenshots/widgets.png)
--->
+![Widgets](docs/images/widgets.png)
+
+#### Mode Indicators
+| Normal | Insert | Visual |
+|--------|--------|--------|
+| ![Normal](docs/images/Component-2.png) | ![Insert](docs/images/Component-3.png) | ![Visual](docs/images/Component-4.png) |
 
 ## Building from Source
 

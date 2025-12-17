@@ -63,9 +63,9 @@ pub fn trigger_nvim_edit(
     let geometry = if settings.popup_mode {
         // Try to get element frame from accessibility API
         let frame_geometry = element_frame.map(|frame| {
-            // Position window below the text field
+            // Position window below the text field, offset up by ~15px so it's not anchored at bottom
             let x = frame.x as i32;
-            let y = (frame.y + frame.height) as i32 + 4; // 4px gap below field
+            let y = (frame.y + frame.height) as i32 - 15;
 
             // Use configured width, or match text field width (min 400)
             let width = if settings.popup_width > 0 {

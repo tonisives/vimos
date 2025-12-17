@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Build GUI app with Tauri
-  gui:
+  # Build GUI app with Tauri (unsigned)
+  build:
     permissions:
       contents: write
     strategy:
@@ -50,47 +50,126 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
-      - name: Import Code-Signing Certificates (macOS)
+      - name: Build Tauri app (unsigned)
+        run: pnpm tauri build ${{ matrix.args }}
+        env:
+          CI: true
+
+      - name: Upload unsigned app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-bundle-${{ matrix.arch }}
+          path: |
+            src-tauri/target/*/release/bundle/macos/*.app
+          retention-days: 1
+
+  # Sign and notarize the app
+  sign:
+    needs: build
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: 'aarch64'
+            target: 'aarch64-apple-darwin'
+          - arch: 'x64'
+            target: 'x86_64-apple-darwin'
+
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download unsigned app bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: app-bundle-${{ matrix.arch }}
+          path: bundle
+
+      - name: Find app bundle
+        id: find-app
+        run: |
+          APP_PATH=$(find bundle -name "*.app" -type d | head -1)
+          echo "app_path=$APP_PATH" >> $GITHUB_OUTPUT
+          echo "Found app at: $APP_PATH"
+
+      - name: Import Code-Signing Certificates
         uses: Apple-Actions/import-codesign-certs@v2
         with:
           p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
           p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
-      - name: Build the app
-        id: tauri
-        uses: tauri-apps/tauri-action@v0
+      - name: List signing identities
+        run: |
+          echo "=== Available signing identities ==="
+          security find-identity -v -p codesigning
+          echo ""
+          echo "=== Looking for identity: ${{ secrets.APPLE_SIGNING_IDENTITY }} ==="
+
+      - name: Sign the app
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          echo "Signing app at: ${{ steps.find-app.outputs.app_path }}"
+          codesign --deep --force --options runtime \
+            --sign "$APPLE_SIGNING_IDENTITY" \
+            "${{ steps.find-app.outputs.app_path }}"
+
+          echo "Verifying signature..."
+          codesign --verify --deep --strict "${{ steps.find-app.outputs.app_path }}"
+
+      - name: Notarize the app
+        env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'ovim v__VERSION__'
-          releaseBody: 'See the assets to download and install this version.'
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
+        run: |
+          # Create a zip for notarization
+          ditto -c -k --keepParent "${{ steps.find-app.outputs.app_path }}" app.zip
 
-      - name: Rename macOS DMG for Homebrew
+          # Submit for notarization
+          xcrun notarytool submit app.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          # Staple the notarization ticket
+          xcrun stapler staple "${{ steps.find-app.outputs.app_path }}"
+
+      - name: Create DMG
+        run: |
+          # Install create-dmg
+          brew install create-dmg
+
+          # Create DMG
+          create-dmg \
+            --volname "ovim" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --app-drop-link 425 178 \
+            --icon "ovim.app" 175 178 \
+            "ovim_${{ matrix.arch }}.dmg" \
+            "${{ steps.find-app.outputs.app_path }}"
+
+      - name: Sign DMG
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          codesign --force --sign "$APPLE_SIGNING_IDENTITY" "ovim_${{ matrix.arch }}.dmg"
+
+      - name: Upload DMG to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Find the DMG file in the artifacts
-          DMG_PATH=$(find target -name "*.dmg" -type f 2>/dev/null | head -1)
-          if [ -n "$DMG_PATH" ]; then
-            NEW_NAME="ovim_${{ matrix.arch }}.dmg"
-            # Copy to new name and upload
-            cp "$DMG_PATH" "$NEW_NAME"
-            gh release upload "${{ github.ref_name }}" "$NEW_NAME" --clobber --repo "${{ github.repository }}"
-          fi
+          gh release upload "${{ github.ref_name }}" "ovim_${{ matrix.arch }}.dmg" --clobber --repo "${{ github.repository }}"
 
   # Update Homebrew tap with new SHA256 checksums
   update-homebrew:
-    needs: [gui]
+    needs: [sign]
     runs-on: ubuntu-latest
     permissions:
       contents: read
