@@ -39,7 +39,8 @@ pub fn trigger_nvim_edit(
 
     // 3. Calculate window geometry if popup mode is enabled
     let geometry = if settings.popup_mode {
-        accessibility::get_focused_element_frame().map(|frame| {
+        // Try to get element frame from accessibility API
+        let frame_geometry = accessibility::get_focused_element_frame().map(|frame| {
             log::info!("Element frame: x={}, y={}, w={}, h={}", frame.x, frame.y, frame.width, frame.height);
 
             // Position window below the text field
@@ -56,6 +57,29 @@ pub fn trigger_nvim_edit(
             let height = settings.popup_height;
 
             WindowGeometry { x, y, width, height }
+        });
+
+        // If element frame not available (e.g., web views), use mouse position as fallback
+        frame_geometry.or_else(|| {
+            accessibility::get_mouse_position().map(|(mouse_x, mouse_y)| {
+                log::info!("Using mouse position fallback: x={}, y={}", mouse_x, mouse_y);
+
+                let width = if settings.popup_width > 0 {
+                    settings.popup_width
+                } else {
+                    500 // Default width for web views
+                };
+
+                let height = settings.popup_height;
+
+                // Position window slightly below and to the right of cursor
+                WindowGeometry {
+                    x: mouse_x as i32,
+                    y: mouse_y as i32 + 20,
+                    width,
+                    height,
+                }
+            })
         })
     } else {
         None

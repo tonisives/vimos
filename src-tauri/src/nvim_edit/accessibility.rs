@@ -27,6 +27,18 @@ extern "C" {
     ) -> bool;
 }
 
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGEventCreate(source: *const std::ffi::c_void) -> *mut std::ffi::c_void;
+    fn CGEventGetLocation(event: *mut std::ffi::c_void) -> core_graphics::geometry::CGPoint;
+}
+
+// Use a different name to avoid conflict with core_foundation's CFRelease
+#[allow(non_snake_case)]
+unsafe fn CFReleaseMut(cf: *mut std::ffi::c_void) {
+    CFRelease(cf as CFTypeRef);
+}
+
 /// Context about the focused application for later restoration
 #[derive(Debug, Clone)]
 pub struct FocusContext {
@@ -112,13 +124,25 @@ pub fn restore_focus(context: &FocusContext) -> Result<(), String> {
 }
 
 /// Position and size of a UI element
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ElementFrame {
     pub x: f64,
     pub y: f64,
     pub width: f64,
     pub height: f64,
+}
+
+/// Get the current mouse cursor position
+pub fn get_mouse_position() -> Option<(f64, f64)> {
+    unsafe {
+        let event = CGEventCreate(std::ptr::null());
+        if event.is_null() {
+            return None;
+        }
+        let point = CGEventGetLocation(event);
+        CFReleaseMut(event);
+        Some((point.x, point.y))
+    }
 }
 
 /// Get the position and size of the currently focused UI element
