@@ -3,6 +3,15 @@
 use std::path::Path;
 use std::process::{Child, Command};
 
+/// Window position and size for popup mode
+#[derive(Debug, Clone, Default)]
+pub struct WindowGeometry {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
 /// Terminal types supported
 #[derive(Debug, Clone, PartialEq)]
 pub enum TerminalType {
@@ -38,16 +47,17 @@ pub fn spawn_terminal(
     terminal: &str,
     nvim_path: &str,
     temp_file: &Path,
+    geometry: Option<WindowGeometry>,
 ) -> Result<SpawnInfo, String> {
     let terminal_type = TerminalType::from_string(terminal);
     let file_path = temp_file.to_string_lossy();
 
     match terminal_type {
-        TerminalType::Alacritty => spawn_alacritty(nvim_path, &file_path),
-        TerminalType::Kitty => spawn_kitty(nvim_path, &file_path),
-        TerminalType::WezTerm => spawn_wezterm(nvim_path, &file_path),
-        TerminalType::ITerm => spawn_iterm(nvim_path, &file_path),
-        TerminalType::Default => spawn_terminal_app(nvim_path, &file_path),
+        TerminalType::Alacritty => spawn_alacritty(nvim_path, &file_path, geometry),
+        TerminalType::Kitty => spawn_kitty(nvim_path, &file_path, geometry),
+        TerminalType::WezTerm => spawn_wezterm(nvim_path, &file_path, geometry),
+        TerminalType::ITerm => spawn_iterm(nvim_path, &file_path, geometry),
+        TerminalType::Default => spawn_terminal_app(nvim_path, &file_path, geometry),
     }
 }
 
@@ -94,12 +104,26 @@ fn wait_for_pid(pid: u32) -> Result<(), String> {
 }
 
 /// Spawn Alacritty terminal
-fn spawn_alacritty(nvim_path: &str, file_path: &str) -> Result<SpawnInfo, String> {
+fn spawn_alacritty(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry>) -> Result<SpawnInfo, String> {
     // Alacritty may be running as a daemon - the `-e` command connects to it
     // and returns immediately. We need to find the actual nvim process.
     // Use "+normal G$" to move cursor to end of file (G = last line, $ = end of line)
-    let _child = Command::new("alacritty")
-        .args(["-e", nvim_path, "+normal G$", file_path])
+    let mut cmd = Command::new("alacritty");
+
+    // Add window position/size if provided
+    // Alacritty uses --option for runtime config overrides
+    if let Some(geo) = geometry {
+        cmd.args([
+            "--option", &format!("window.position.x={}", geo.x),
+            "--option", &format!("window.position.y={}", geo.y),
+            "--option", &format!("window.dimensions.columns={}", geo.width / 8), // Approximate char width
+            "--option", &format!("window.dimensions.lines={}", geo.height / 16), // Approximate line height
+        ]);
+    }
+
+    cmd.args(["-e", nvim_path, "+normal G$", file_path]);
+
+    let _child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn alacritty: {}", e))?;
 
@@ -115,14 +139,33 @@ fn spawn_alacritty(nvim_path: &str, file_path: &str) -> Result<SpawnInfo, String
 }
 
 /// Spawn Kitty terminal
-fn spawn_kitty(nvim_path: &str, file_path: &str) -> Result<SpawnInfo, String> {
+fn spawn_kitty(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry>) -> Result<SpawnInfo, String> {
     // Use "+normal G$" to move cursor to end of file
-    let child = Command::new("kitty")
-        .args([nvim_path, "+normal G$", file_path])
+    let mut cmd = Command::new("kitty");
+
+    // Add window position/size if provided
+    // Kitty uses -o for config overrides
+    if let Some(ref geo) = geometry {
+        cmd.args([
+            "-o", &format!("initial_window_width={}", geo.width),
+            "-o", &format!("initial_window_height={}", geo.height),
+            "-o", "remember_window_size=no",
+        ]);
+        // Note: Kitty doesn't have direct position args, but we can try osascript after
+    }
+
+    cmd.args([nvim_path, "+normal G$", file_path]);
+
+    let child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn kitty: {}", e))?;
 
     let pid = child.id();
+
+    // Move window to position if geometry specified (using AppleScript)
+    if let Some(ref geo) = geometry {
+        move_window_to_position("kitty", geo.x, geo.y);
+    }
 
     Ok(SpawnInfo {
         terminal_type: TerminalType::Kitty,
@@ -132,10 +175,26 @@ fn spawn_kitty(nvim_path: &str, file_path: &str) -> Result<SpawnInfo, String> {
 }
 
 /// Spawn WezTerm terminal
-fn spawn_wezterm(nvim_path: &str, file_path: &str) -> Result<SpawnInfo, String> {
+fn spawn_wezterm(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry>) -> Result<SpawnInfo, String> {
     // Use "+normal G$" to move cursor to end of file
-    let child = Command::new("wezterm")
-        .args(["start", "--", nvim_path, "+normal G$", file_path])
+    let mut cmd = Command::new("wezterm");
+
+    // WezTerm supports --position for window placement
+    if let Some(geo) = geometry {
+        cmd.args([
+            "start",
+            "--position", &format!("{},{}", geo.x, geo.y),
+            "--width", &format!("{}", geo.width),
+            "--height", &format!("{}", geo.height),
+            "--",
+        ]);
+    } else {
+        cmd.args(["start", "--"]);
+    }
+
+    cmd.args([nvim_path, "+normal G$", file_path]);
+
+    let child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn wezterm: {}", e))?;
 
@@ -149,21 +208,38 @@ fn spawn_wezterm(nvim_path: &str, file_path: &str) -> Result<SpawnInfo, String> 
 }
 
 /// Spawn iTerm2 using AppleScript
-fn spawn_iterm(nvim_path: &str, file_path: &str) -> Result<SpawnInfo, String> {
-    // Use AppleScript to open iTerm and run nvim
-    // Use "+" to move cursor to end of file
-    let script = format!(
-        r#"
-        tell application "iTerm"
-            activate
-            set newWindow to (create window with default profile)
-            tell current session of newWindow
-                write text "{} + '{}'"
+fn spawn_iterm(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry>) -> Result<SpawnInfo, String> {
+    // Use AppleScript to open iTerm and run nvim with position/size
+    // Use "+normal G$" to move cursor to end of file
+    let script = if let Some(geo) = geometry {
+        format!(
+            r#"
+            tell application "iTerm"
+                activate
+                set newWindow to (create window with default profile)
+                set bounds of newWindow to {{{}, {}, {}, {}}}
+                tell current session of newWindow
+                    write text "{} '+normal G$' '{}'"
+                end tell
             end tell
-        end tell
-        "#,
-        nvim_path, file_path
-    );
+            "#,
+            geo.x, geo.y, geo.x + geo.width as i32, geo.y + geo.height as i32,
+            nvim_path, file_path
+        )
+    } else {
+        format!(
+            r#"
+            tell application "iTerm"
+                activate
+                set newWindow to (create window with default profile)
+                tell current session of newWindow
+                    write text "{} '+normal G$' '{}'"
+                end tell
+            end tell
+            "#,
+            nvim_path, file_path
+        )
+    };
 
     Command::new("osascript")
         .arg("-e")
@@ -183,17 +259,31 @@ fn spawn_iterm(nvim_path: &str, file_path: &str) -> Result<SpawnInfo, String> {
 }
 
 /// Spawn Terminal.app using AppleScript
-fn spawn_terminal_app(nvim_path: &str, file_path: &str) -> Result<SpawnInfo, String> {
-    // Use "+" to move cursor to end of file
-    let script = format!(
-        r#"
-        tell application "Terminal"
-            activate
-            do script "{} + '{}'"
-        end tell
-        "#,
-        nvim_path, file_path
-    );
+fn spawn_terminal_app(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry>) -> Result<SpawnInfo, String> {
+    // Use "+normal G$" to move cursor to end of file
+    let script = if let Some(geo) = geometry {
+        format!(
+            r#"
+            tell application "Terminal"
+                activate
+                do script "{} '+normal G$' '{}'"
+                set bounds of front window to {{{}, {}, {}, {}}}
+            end tell
+            "#,
+            nvim_path, file_path,
+            geo.x, geo.y, geo.x + geo.width as i32, geo.y + geo.height as i32
+        )
+    } else {
+        format!(
+            r#"
+            tell application "Terminal"
+                activate
+                do script "{} '+normal G$' '{}'"
+            end tell
+            "#,
+            nvim_path, file_path
+        )
+    };
 
     Command::new("osascript")
         .arg("-e")
@@ -250,4 +340,28 @@ fn find_nvim_pid() -> Option<u32> {
     } else {
         None
     }
+}
+
+/// Move a window to a specific position using AppleScript
+fn move_window_to_position(app_name: &str, x: i32, y: i32) {
+    // Small delay to let the window appear
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    let script = format!(
+        r#"
+        tell application "System Events"
+            tell process "{}"
+                try
+                    set position of front window to {{{}, {}}}
+                end try
+            end tell
+        end tell
+        "#,
+        app_name, x, y
+    );
+
+    let _ = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output();
 }

@@ -457,3 +457,35 @@ body {
   color: var(--text-secondary);
 }
 
+/* Form row for side-by-side inputs */
+.form-row {
+  display: flex;
+  gap: 16px;
+}
+
+.form-row .form-group {
+  flex: 1;
+  max-width: 150px;
+}
+
+.form-group input[type="number"] {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.form-group input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px var(--accent-hover);
+}
+
+.form-group input[type="number"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+

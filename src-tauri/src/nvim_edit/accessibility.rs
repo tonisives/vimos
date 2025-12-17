@@ -3,9 +3,12 @@
 use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
 use core_foundation::string::CFString;
 
-// AXValue types for position and size
+// AXValue types for position and size (may be used for future features)
+#[allow(dead_code)]
 type AXValueRef = CFTypeRef;
+#[allow(dead_code, non_upper_case_globals)]
 const kAXValueCGPointType: i32 = 1;
+#[allow(dead_code, non_upper_case_globals)]
 const kAXValueCGSizeType: i32 = 2;
 
 #[link(name = "ApplicationServices", kind = "framework")]
@@ -16,8 +19,9 @@ extern "C" {
         attribute: CFTypeRef,
         value: *mut CFTypeRef,
     ) -> i32;
+    #[allow(dead_code)]
     fn AXValueGetValue(
-        value: AXValueRef,
+        value: CFTypeRef,
         the_type: i32,
         value_ptr: *mut std::ffi::c_void,
     ) -> bool;
@@ -108,6 +112,7 @@ pub fn restore_focus(context: &FocusContext) -> Result<(), String> {
 }
 
 /// Position and size of a UI element
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ElementFrame {
     pub x: f64,
@@ -117,6 +122,7 @@ pub struct ElementFrame {
 }
 
 /// Get the position and size of the currently focused UI element
+#[allow(dead_code)]
 pub fn get_focused_element_frame() -> Option<ElementFrame> {
     unsafe {
         let system_wide = AXUIElementCreateSystemWide();

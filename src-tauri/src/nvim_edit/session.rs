@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use super::accessibility::FocusContext;
-use super::terminal::{spawn_terminal, SpawnInfo, TerminalType};
+use super::terminal::{spawn_terminal, SpawnInfo, TerminalType, WindowGeometry};
 use crate::config::NvimEditSettings;
 
 /// An active edit session
@@ -37,6 +37,7 @@ impl EditSessionManager {
         focus_context: FocusContext,
         text: String,
         settings: NvimEditSettings,
+        geometry: Option<WindowGeometry>,
     ) -> Result<Uuid, String> {
         // Create temp directory if needed
         let cache_dir = dirs::cache_dir()
@@ -58,7 +59,7 @@ impl EditSessionManager {
             terminal_type,
             process_id,
             child: _,
-        } = spawn_terminal(&settings.terminal, &settings.nvim_path, &temp_file)?;
+        } = spawn_terminal(&settings.terminal, &settings.nvim_path, &temp_file, geometry)?;
 
         // Create session
         let session = EditSession {

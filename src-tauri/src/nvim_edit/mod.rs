@@ -12,6 +12,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+use terminal::WindowGeometry;
 
 /// Trigger the "Edit with Neovim" flow
 pub fn trigger_nvim_edit(
@@ -23,12 +24,36 @@ pub fn trigger_nvim_edit(
         .ok_or("No focused application found")?;
     log::info!("Captured focus context: {:?}", focus_context);
 
-    // 2. Get text from the focused element
+    // 2. Get text and position from the focused element
     let text = accessibility::get_focused_element_text().unwrap_or_default();
     log::info!("Got text from focused element: {} chars", text.len());
 
-    // 3. Start edit session (writes temp file, spawns terminal)
-    let session_id = manager.start_session(focus_context, text.clone(), settings.clone())?;
+    // 3. Calculate window geometry if popup mode is enabled
+    let geometry = if settings.popup_mode {
+        accessibility::get_focused_element_frame().map(|frame| {
+            log::info!("Element frame: x={}, y={}, w={}, h={}", frame.x, frame.y, frame.width, frame.height);
+
+            // Position window below the text field
+            let x = frame.x as i32;
+            let y = (frame.y + frame.height) as i32 + 4; // 4px gap below field
+
+            // Use configured width, or match text field width (min 400)
+            let width = if settings.popup_width > 0 {
+                settings.popup_width
+            } else {
+                (frame.width as u32).max(400)
+            };
+
+            let height = settings.popup_height;
+
+            WindowGeometry { x, y, width, height }
+        })
+    } else {
+        None
+    };
+
+    // 4. Start edit session (writes temp file, spawns terminal)
+    let session_id = manager.start_session(focus_context, text.clone(), settings.clone(), geometry)?;
     log::info!("Started edit session: {}", session_id);
 
     // 4. Spawn a thread to wait for nvim to exit and restore text

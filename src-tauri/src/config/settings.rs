@@ -24,6 +24,12 @@ pub struct NvimEditSettings {
     pub terminal: String,
     /// Path to nvim (default: "nvim" - uses PATH)
     pub nvim_path: String,
+    /// Position window below text field instead of fullscreen
+    pub popup_mode: bool,
+    /// Popup window width in pixels (0 = match text field width)
+    pub popup_width: u32,
+    /// Popup window height in pixels
+    pub popup_height: u32,
 }
 
 impl Default for NvimEditSettings {
@@ -39,6 +45,9 @@ impl Default for NvimEditSettings {
             },
             terminal: "alacritty".to_string(),
             nvim_path: "nvim".to_string(),
+            popup_mode: true,
+            popup_width: 0, // 0 = match text field width
+            popup_height: 300,
         }
     }
 }
