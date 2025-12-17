@@ -8,6 +8,7 @@ use std::process::Command;
 pub enum BrowserType {
     Safari,
     Chrome,
+    Brave,
     Arc,
 }
 
@@ -17,6 +18,7 @@ impl BrowserType {
         match self {
             BrowserType::Safari => "Safari",
             BrowserType::Chrome => "Google Chrome",
+            BrowserType::Brave => "Brave Browser",
             BrowserType::Arc => "Arc",
         }
     }
@@ -33,61 +35,16 @@ pub const EDGE_BUNDLE: &str = "com.microsoft.edgemac";
 pub fn detect_browser_type(bundle_id: &str) -> Option<BrowserType> {
     match bundle_id {
         SAFARI_BUNDLE => Some(BrowserType::Safari),
-        CHROME_BUNDLE | BRAVE_BUNDLE | EDGE_BUNDLE => Some(BrowserType::Chrome),
+        CHROME_BUNDLE | EDGE_BUNDLE => Some(BrowserType::Chrome),
+        BRAVE_BUNDLE => Some(BrowserType::Brave),
         ARC_BUNDLE => Some(BrowserType::Arc),
         _ => None,
     }
 }
 
-/// JavaScript to get the focused element's bounding rect in screen coordinates
-const GET_ELEMENT_RECT_JS: &str = r#"
-(function() {
-    var el = document.activeElement;
-    if (!el || el === document.body || el === document.documentElement) return null;
-
-    // Handle iframes - try to get the actual focused element inside
-    if (el.tagName === 'IFRAME') {
-        try {
-            var iframeDoc = el.contentDocument || el.contentWindow.document;
-            if (iframeDoc && iframeDoc.activeElement && iframeDoc.activeElement !== iframeDoc.body) {
-                // For iframes, we need the iframe's position plus the element's position within
-                var iframeRect = el.getBoundingClientRect();
-                var innerEl = iframeDoc.activeElement;
-                var innerRect = innerEl.getBoundingClientRect();
-                var chromeHeight = window.outerHeight - window.innerHeight;
-                return JSON.stringify({
-                    x: Math.round(iframeRect.left + innerRect.left + window.screenX),
-                    y: Math.round(iframeRect.top + innerRect.top + window.screenY + chromeHeight),
-                    width: Math.round(innerRect.width),
-                    height: Math.round(innerRect.height)
-                });
-            }
-        } catch(e) {
-            // Cross-origin iframe, fall through to use iframe's rect
-        }
-    }
-
-    // Handle shadow DOM
-    if (el.shadowRoot && el.shadowRoot.activeElement) {
-        el = el.shadowRoot.activeElement;
-    }
-
-    var rect = el.getBoundingClientRect();
-
-    // Skip if element has no dimensions (hidden or not rendered)
-    if (rect.width === 0 && rect.height === 0) return null;
-
-    // Calculate browser chrome height (toolbars, tabs, etc.)
-    var chromeHeight = window.outerHeight - window.innerHeight;
-
-    return JSON.stringify({
-        x: Math.round(rect.left + window.screenX),
-        y: Math.round(rect.top + window.screenY + chromeHeight),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height)
-    });
-})()
-"#;
+/// JavaScript to get the focused element's bounding rect relative to the viewport
+/// We return viewport-relative coordinates and let Rust add the actual window position
+const GET_ELEMENT_RECT_JS: &str = r#"(function() { var el = document.activeElement; if (!el || el === document.body || el === document.documentElement) return null; if (el.tagName === 'IFRAME') { try { var iframeDoc = el.contentDocument || el.contentWindow.document; if (iframeDoc && iframeDoc.activeElement && iframeDoc.activeElement !== iframeDoc.body) { var iframeRect = el.getBoundingClientRect(); var innerEl = iframeDoc.activeElement; var innerRect = innerEl.getBoundingClientRect(); return JSON.stringify({ x: Math.round(iframeRect.left + innerRect.left), y: Math.round(iframeRect.top + innerRect.top), width: Math.round(innerRect.width), height: Math.round(innerRect.height), chromeHeight: window.outerHeight - window.innerHeight }); } } catch(e) {} } if (el.shadowRoot && el.shadowRoot.activeElement) { el = el.shadowRoot.activeElement; } var rect = el.getBoundingClientRect(); if (rect.width === 0 && rect.height === 0) return null; return JSON.stringify({ x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height), chromeHeight: window.outerHeight - window.innerHeight }); })()"#;
 
 /// Get the focused element frame from a browser using AppleScript
 pub fn get_browser_element_frame(browser_type: BrowserType) -> Option<ElementFrame> {
@@ -96,71 +53,110 @@ pub fn get_browser_element_frame(browser_type: BrowserType) -> Option<ElementFra
         browser_type
     );
 
+    // First get the actual window position using System Events (accurate across displays)
+    let window_pos = get_browser_window_position(browser_type.app_name())?;
+    log::info!("Browser window position: {:?}", window_pos);
+
+    // Then get the element's viewport-relative position
     let script = match browser_type {
         BrowserType::Safari => build_safari_script(),
-        BrowserType::Chrome | BrowserType::Arc => build_chrome_script(browser_type.app_name()),
+        BrowserType::Chrome | BrowserType::Brave | BrowserType::Arc => {
+            build_chrome_script(browser_type.app_name())
+        }
     };
 
-    execute_applescript_and_parse(&script)
+    let viewport_frame = execute_applescript_and_parse(&script)?;
+
+    // Combine: window position + chrome height + viewport-relative element position
+    let chrome_height = viewport_frame.chrome_height.unwrap_or(0.0);
+
+    Some(ElementFrame {
+        x: window_pos.0 + viewport_frame.x,
+        y: window_pos.1 + chrome_height + viewport_frame.y,
+        width: viewport_frame.width,
+        height: viewport_frame.height,
+    })
+}
+
+/// Get the browser window's actual position using System Events
+fn get_browser_window_position(app_name: &str) -> Option<(f64, f64)> {
+    let script = format!(
+        r#"tell application "System Events" to get position of front window of process "{}""#,
+        app_name
+    );
+
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        log::warn!("Failed to get window position: {}", String::from_utf8_lossy(&output.stderr));
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Parse "1504, 0" format
+    let parts: Vec<&str> = stdout.trim().split(", ").collect();
+    if parts.len() != 2 {
+        log::warn!("Unexpected window position format: {}", stdout);
+        return None;
+    }
+
+    let x: f64 = parts[0].parse().ok()?;
+    let y: f64 = parts[1].parse().ok()?;
+
+    Some((x, y))
 }
 
 /// Build AppleScript for Safari
 fn build_safari_script() -> String {
-    // Escape the JavaScript for AppleScript string
-    let escaped_js = GET_ELEMENT_RECT_JS
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', " ");
-
     format!(
-        r#"
-        tell application "Safari"
-            if (count of windows) = 0 then return "null"
-            tell front window
-                if (count of tabs) = 0 then return "null"
-                set activeTab to current tab
-                try
-                    set jsResult to do JavaScript "{}" in activeTab
-                    return jsResult
-                on error
-                    return "null"
-                end try
-            end tell
-        end tell
-    "#,
-        escaped_js
+        r#"tell application "Safari"
+    if (count of windows) = 0 then return "null"
+    tell front window
+        if (count of tabs) = 0 then return "null"
+        try
+            return do JavaScript "{}" in current tab
+        on error
+            return "null"
+        end try
+    end tell
+end tell"#,
+        GET_ELEMENT_RECT_JS.replace('"', "\\\"")
     )
 }
 
 /// Build AppleScript for Chrome-based browsers (Chrome, Arc, Brave, Edge)
 fn build_chrome_script(app_name: &str) -> String {
-    // Escape the JavaScript for AppleScript string
-    let escaped_js = GET_ELEMENT_RECT_JS
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', " ");
-
     format!(
-        r#"
-        tell application "{}"
-            if (count of windows) = 0 then return "null"
-            tell front window
-                set activeTab to active tab
-                try
-                    set jsResult to execute javascript "{}" in activeTab
-                    return jsResult
-                on error
-                    return "null"
-                end try
-            end tell
-        end tell
-    "#,
-        app_name, escaped_js
+        r#"tell application "{}"
+    if (count of windows) = 0 then return "null"
+    tell active tab of front window
+        try
+            return execute javascript "{}"
+        on error
+            return "null"
+        end try
+    end tell
+end tell"#,
+        app_name,
+        GET_ELEMENT_RECT_JS.replace('"', "\\\"")
     )
 }
 
-/// Execute AppleScript and parse the JSON result into ElementFrame
-fn execute_applescript_and_parse(script: &str) -> Option<ElementFrame> {
+/// Viewport-relative frame with chrome height info
+struct ViewportFrame {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    chrome_height: Option<f64>,
+}
+
+/// Execute AppleScript and parse the JSON result into ViewportFrame
+fn execute_applescript_and_parse(script: &str) -> Option<ViewportFrame> {
     // Execute with timeout
     let output = Command::new("osascript")
         .arg("-e")
@@ -191,13 +187,13 @@ fn execute_applescript_and_parse(script: &str) -> Option<ElementFrame> {
     }
 
     // Parse JSON
-    parse_element_frame_json(&stdout)
+    parse_viewport_frame_json(&stdout)
 }
 
-/// Parse JSON string into ElementFrame
-fn parse_element_frame_json(json: &str) -> Option<ElementFrame> {
+/// Parse JSON string into ViewportFrame
+fn parse_viewport_frame_json(json: &str) -> Option<ViewportFrame> {
     // Simple JSON parsing without serde dependency
-    // Expected format: {"x":123,"y":456,"width":789,"height":100}
+    // Expected format: {"x":123,"y":456,"width":789,"height":100,"chromeHeight":50}
 
     let json = json.trim().trim_matches('"');
 
@@ -205,20 +201,23 @@ fn parse_element_frame_json(json: &str) -> Option<ElementFrame> {
     let y = extract_json_number(json, "y")?;
     let width = extract_json_number(json, "width")?;
     let height = extract_json_number(json, "height")?;
+    let chrome_height = extract_json_number(json, "chromeHeight");
 
     log::info!(
-        "Parsed browser element frame: x={}, y={}, w={}, h={}",
-        x,
-        y,
-        width,
-        height
-    );
-
-    Some(ElementFrame {
+        "Parsed viewport frame: x={}, y={}, w={}, h={}, chrome={}",
         x,
         y,
         width,
         height,
+        chrome_height.unwrap_or(0.0)
+    );
+
+    Some(ViewportFrame {
+        x,
+        y,
+        width,
+        height,
+        chrome_height,
     })
 }
 
@@ -257,7 +256,7 @@ mod tests {
         ));
         assert!(matches!(
             detect_browser_type("com.brave.Browser"),
-            Some(BrowserType::Chrome)
+            Some(BrowserType::Brave)
         ));
         assert!(detect_browser_type("org.mozilla.firefox").is_none());
         assert!(detect_browser_type("com.apple.TextEdit").is_none());
