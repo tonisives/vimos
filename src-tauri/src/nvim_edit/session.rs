@@ -19,6 +19,7 @@ pub struct EditSession {
     pub file_mtime: SystemTime,
     pub terminal_type: TerminalType,
     pub process_id: Option<u32>,
+    pub window_title: Option<String>,
 }
 
 /// Manager for edit sessions
@@ -66,6 +67,7 @@ impl EditSessionManager {
             terminal_type,
             process_id,
             child: _,
+            window_title,
         } = spawn_terminal(&settings.terminal, &settings.nvim_path, &temp_file, geometry)?;
 
         // Create session
@@ -77,6 +79,7 @@ impl EditSessionManager {
             file_mtime,
             terminal_type,
             process_id,
+            window_title,
         };
 
         // Store session
@@ -97,6 +100,7 @@ impl EditSessionManager {
             file_mtime: s.file_mtime,
             terminal_type: s.terminal_type.clone(),
             process_id: s.process_id,
+            window_title: s.window_title.clone(),
         })
     }
 

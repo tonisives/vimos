@@ -40,6 +40,7 @@ pub struct SpawnInfo {
     pub process_id: Option<u32>,
     #[allow(dead_code)]
     pub child: Option<Child>,
+    pub window_title: Option<String>,
 }
 
 /// Spawn a terminal with nvim editing the given file
@@ -178,6 +179,7 @@ fn spawn_alacritty(nvim_path: &str, file_path: &str, geometry: Option<WindowGeom
         terminal_type: TerminalType::Alacritty,
         process_id: pid,
         child: Some(cmd),
+        window_title: Some(unique_title),
     })
 }
 
@@ -214,6 +216,7 @@ fn spawn_kitty(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry
         terminal_type: TerminalType::Kitty,
         process_id: Some(pid),
         child: Some(child),
+        window_title: None,
     })
 }
 
@@ -247,6 +250,7 @@ fn spawn_wezterm(nvim_path: &str, file_path: &str, geometry: Option<WindowGeomet
         terminal_type: TerminalType::WezTerm,
         process_id: Some(pid),
         child: Some(child),
+        window_title: None,
     })
 }
 
@@ -298,6 +302,7 @@ fn spawn_iterm(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry
         terminal_type: TerminalType::ITerm,
         process_id: pid,
         child: None,
+        window_title: None,
     })
 }
 
@@ -342,6 +347,7 @@ fn spawn_terminal_app(nvim_path: &str, file_path: &str, geometry: Option<WindowG
         terminal_type: TerminalType::Default,
         process_id: pid,
         child: None,
+        window_title: None,
     })
 }
 
@@ -513,6 +519,45 @@ fn set_window_bounds_by_index(app_name: &str, index: usize, x: i32, y: i32, widt
     if let Ok(out) = output {
         if !out.status.success() {
             log::error!("AppleScript failed: {}", String::from_utf8_lossy(&out.stderr));
+        }
+    }
+}
+
+/// Close alacritty window by title (for --hold windows)
+/// With --hold, the window shows "[Process exited - press any key to close]"
+/// We need to send a keystroke to that window to close it
+pub fn close_alacritty_window_by_title(title: &str) {
+    // The alacritty window should still be focused at this point
+    // Just send a keystroke to dismiss the --hold prompt
+    let script = format!(
+        r#"
+        tell application "System Events"
+            tell process "Alacritty"
+                repeat with i from 1 to (count of windows)
+                    set w to window i
+                    if name of w contains "{}" then
+                        -- Send any key to close the held window
+                        -- The window should already be focused
+                        keystroke return
+                        return
+                    end if
+                end repeat
+            end tell
+        end tell
+        "#,
+        title
+    );
+
+    log::info!("Closing alacritty window with title: {}", title);
+
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output();
+
+    if let Ok(out) = output {
+        if !out.status.success() {
+            log::warn!("Failed to close alacritty window: {}", String::from_utf8_lossy(&out.stderr));
         }
     }
 }

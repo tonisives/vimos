@@ -1,6 +1,7 @@
 //! "Edit with Neovim" feature - open any text field in nvim via a keyboard shortcut
 
 mod accessibility;
+mod browser_scripting;
 mod session;
 mod terminal;
 
@@ -28,8 +29,22 @@ pub fn trigger_nvim_edit(
     log::info!("popup_mode={}, popup_width={}, popup_height={}", settings.popup_mode, settings.popup_width, settings.popup_height);
     let element_frame = accessibility::get_focused_element_frame();
     let window_frame = accessibility::get_focused_window_frame();
-    log::info!("Element frame: {:?}", element_frame.as_ref().map(|f| (f.x, f.y, f.width, f.height)));
+    log::info!("Element frame from accessibility: {:?}", element_frame.as_ref().map(|f| (f.x, f.y, f.width, f.height)));
     log::info!("Window frame: {:?}", window_frame.as_ref().map(|f| (f.x, f.y, f.width, f.height)));
+
+    // If accessibility API didn't return element frame, try browser scripting for web text fields
+    let element_frame = if element_frame.is_none() {
+        if let Some(browser_type) = browser_scripting::detect_browser_type(&focus_context.app_bundle_id) {
+            log::info!("Detected browser type {:?}, attempting browser scripting", browser_type);
+            let browser_frame = browser_scripting::get_browser_element_frame(browser_type);
+            log::info!("Browser scripting element frame: {:?}", browser_frame.as_ref().map(|f| (f.x, f.y, f.width, f.height)));
+            browser_frame
+        } else {
+            None
+        }
+    } else {
+        element_frame
+    };
 
     // 3. Get text from the focused element (try accessibility first, then clipboard fallback)
     let mut text = accessibility::get_focused_element_text().unwrap_or_default();
@@ -117,11 +132,28 @@ pub fn trigger_nvim_edit(
 
             log::info!("Terminal process exited, reading edited file");
 
-            // Small delay to ensure file is written
+            // IMPORTANT: To prevent window flicker when alacritty closes:
+            // 1. Close the alacritty window first (while it's still focused) by sending a key
+            // 2. Then restore focus to the target app
+            // This way macOS never auto-switches to another window
+
+            // Close alacritty window by title (if we have one)
+            // With --hold, we need to send a key to dismiss it
+            if let Some(ref title) = session.window_title {
+                terminal::close_alacritty_window_by_title(title);
+            }
+
+            // Now restore focus to the original app
+            log::info!("Restoring focus after closing alacritty window");
+            if let Err(e) = accessibility::restore_focus(&session.focus_context) {
+                log::error!("Error restoring focus: {}", e);
+            }
+
+            // Small delay to ensure file is written and focus is settled
             thread::sleep(Duration::from_millis(100));
 
-            // Complete the session (read file, restore text)
-            if let Err(e) = complete_edit_session(&manager_clone, &session_id, &session.original_text, &session.focus_context) {
+            // Complete the session (read file, restore text) - focus already restored above
+            if let Err(e) = complete_edit_session_no_focus(&manager_clone, &session_id, &session.original_text) {
                 log::error!("Error completing edit session: {}", e);
             }
 
@@ -136,11 +168,11 @@ pub fn trigger_nvim_edit(
 }
 
 /// Complete the edit session: read edited text and restore to original field
-fn complete_edit_session(
+/// Note: Focus should already be restored before calling this function
+fn complete_edit_session_no_focus(
     manager: &EditSessionManager,
     session_id: &uuid::Uuid,
     _original_text: &str,
-    focus_context: &accessibility::FocusContext,
 ) -> Result<(), String> {
     // Read the temp file
     let session = manager.get_session(session_id)
@@ -168,13 +200,8 @@ fn complete_edit_session(
     // Clean up temp file
     let _ = std::fs::remove_file(&session.temp_file);
 
-    log::info!("Restoring focus to app: {:?}", focus_context);
-
-    // Restore focus to original app
-    accessibility::restore_focus(focus_context)?;
-
-    // Small delay for focus to settle
-    thread::sleep(Duration::from_millis(200));
+    // Small delay for focus to settle (focus was restored before this call)
+    thread::sleep(Duration::from_millis(100));
 
     log::info!("Replacing text via clipboard");
 
@@ -255,6 +282,21 @@ fn capture_text_via_clipboard() -> Option<String> {
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok());
 
+    // Clear clipboard with a unique marker to detect if copy actually worked
+    let marker = "\x00__OVIM_EMPTY_MARKER__\x00";
+    let _ = Command::new("pbcopy")
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut p| {
+            if let Some(mut stdin) = p.stdin.take() {
+                use std::io::Write;
+                let _ = stdin.write_all(marker.as_bytes());
+            }
+            p.wait()
+        });
+
+    thread::sleep(Duration::from_millis(50));
+
     // Select all (Cmd+A)
     if inject_key_press(
         KeyCode::A,
@@ -304,5 +346,6 @@ fn capture_text_via_clipboard() -> Option<String> {
         });
     }
 
-    captured_text
+    // If clipboard still contains our marker, the field was empty
+    captured_text.filter(|text| text != marker)
 }
