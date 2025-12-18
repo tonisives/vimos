@@ -55,6 +55,19 @@ Requires [Rust](https://rustup.rs/), [Node.js](https://nodejs.org/) v18+, and [p
 
 See [docs/keybindings.md](docs/keybindings.md) for the full list of supported Vim keybindings.
 
+## CLI Tool
+
+ovim includes a CLI for controlling modes from scripts or tools like Karabiner-Elements:
+
+```bash
+ovim toggle   # Toggle between insert/normal mode
+ovim normal   # Enter normal mode
+ovim insert   # Enter insert mode
+ovim mode     # Get current mode
+```
+
+See [docs/cli.md](docs/cli.md) for full CLI documentation and Karabiner integration examples.
+
 ## Screenshots
 
 | Normal | Insert | Visual |

@@ -105,6 +105,12 @@ pub struct AppState {
 
 // Tauri commands
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PermissionStatus {
+    pub accessibility: bool,
+    pub capture_running: bool,
+}
+
 #[tauri::command]
 fn check_permission() -> bool {
     check_accessibility_permission()
@@ -113,6 +119,32 @@ fn check_permission() -> bool {
 #[tauri::command]
 fn request_permission() -> bool {
     request_accessibility_permission()
+}
+
+#[tauri::command]
+fn get_permission_status(state: State<AppState>) -> PermissionStatus {
+    PermissionStatus {
+        accessibility: check_accessibility_permission(),
+        capture_running: state.keyboard_capture.is_running(),
+    }
+}
+
+#[tauri::command]
+fn open_accessibility_settings() {
+    use std::process::Command;
+    // Open System Settings to Privacy & Security > Accessibility
+    let _ = Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        .spawn();
+}
+
+#[tauri::command]
+fn open_input_monitoring_settings() {
+    use std::process::Command;
+    // Open System Settings to Privacy & Security > Input Monitoring
+    let _ = Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")
+        .spawn();
 }
 
 #[tauri::command]
@@ -543,6 +575,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             check_permission,
             request_permission,
+            get_permission_status,
+            open_accessibility_settings,
+            open_input_monitoring_settings,
             get_vim_mode,
             get_settings,
             set_settings,

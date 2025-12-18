@@ -13,6 +13,11 @@ interface RecordedKey {
   modifiers: VimKeyModifiers
 }
 
+interface PermissionStatus {
+  accessibility: boolean
+  capture_running: boolean
+}
+
 const PRESET_KEYS = [
   { value: "caps_lock", label: "Caps Lock" },
   { value: "escape", label: "Escape" },
@@ -42,6 +47,7 @@ function hasAnyModifier(modifiers: VimKeyModifiers): boolean {
 export function GeneralSettings({ settings, onUpdate }: Props) {
   const [isRecording, setIsRecording] = useState(false)
   const [displayName, setDisplayName] = useState<string | null>(null)
+  const [permissionStatus, setPermissionStatus] = useState<PermissionStatus | null>(null)
 
   useEffect(() => {
     invoke<string | null>("get_key_display_name", { keyName: settings.vim_key })
@@ -54,6 +60,17 @@ export function GeneralSettings({ settings, onUpdate }: Props) {
       })
       .catch(() => setDisplayName(null))
   }, [settings.vim_key, settings.vim_key_modifiers])
+
+  useEffect(() => {
+    const checkPermissions = () => {
+      invoke<PermissionStatus>("get_permission_status")
+        .then(setPermissionStatus)
+        .catch((e) => console.error("Failed to get permission status:", e))
+    }
+    checkPermissions()
+    const interval = setInterval(checkPermissions, 2000)
+    return () => clearInterval(interval)
+  }, [])
 
   const handleRecordKey = async () => {
     setIsRecording(true)
@@ -86,9 +103,55 @@ export function GeneralSettings({ settings, onUpdate }: Props) {
 
   const isPresetKey = PRESET_KEYS.some((k) => k.value === settings.vim_key) && !hasAnyModifier(settings.vim_key_modifiers)
 
+  const handleOpenAccessibility = () => {
+    invoke("open_accessibility_settings").catch(console.error)
+  }
+
+  const handleOpenInputMonitoring = () => {
+    invoke("open_input_monitoring_settings").catch(console.error)
+  }
+
+  const handleRequestPermission = async () => {
+    await invoke("request_permission")
+    const status = await invoke<PermissionStatus>("get_permission_status")
+    setPermissionStatus(status)
+  }
+
+  const permissionsOk = permissionStatus?.accessibility && permissionStatus?.capture_running
+
   return (
     <div className="settings-section">
       <h2>General Settings</h2>
+
+      {permissionStatus && !permissionsOk && (
+        <div className="permission-warning">
+          <div className="permission-title">Permissions Required</div>
+          <div className="permission-items">
+            {!permissionStatus.accessibility && (
+              <div className="permission-item">
+                <span className="permission-status missing">Accessibility</span>
+                <button type="button" className="permission-btn" onClick={handleRequestPermission}>
+                  Request
+                </button>
+                <button type="button" className="permission-btn secondary" onClick={handleOpenAccessibility}>
+                  Open Settings
+                </button>
+              </div>
+            )}
+            {!permissionStatus.capture_running && (
+              <div className="permission-item">
+                <span className="permission-status missing">Input Monitoring</span>
+                <button type="button" className="permission-btn" onClick={handleOpenInputMonitoring}>
+                  Open Settings
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="permission-hint">
+            Grant permissions and restart the app for changes to take effect.
+          </div>
+        </div>
+      )}
 
       <div className="form-group">
         <label htmlFor="vim-key">Vim mode key</label>
