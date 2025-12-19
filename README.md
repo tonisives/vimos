@@ -4,7 +4,9 @@ macOS system-wide Vim keybindings and modal editor.
 
 ovim is a lightweight menu bar application that brings Vim's modal editing to every app on your Mac. Press a key to toggle between Insert and Normal mode anywhere - in your browser, text editors, terminal, or any other application.
 
-![ovim Modes](docs/images/modes-animated.gif)
+| Mode Indicator | Edit Popup |
+| -------------- | ---------- |
+| ![ovim Modes](docs/images/modes-animated.gif) | ![Edit Popup](docs/images/edit-popup.gif) |
 
 ## Features
 
