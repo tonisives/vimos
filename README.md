@@ -55,16 +55,17 @@ Requires [Rust](https://rustup.rs/), [Node.js](https://nodejs.org/) v18+, and [p
 
 ## Edit Popup
 
-Press `ge` in Normal mode to open the edit popup - a full Neovim editor window for complex text editing. This is useful when you need more powerful editing capabilities than the basic Vim keybindings provide.
+The edit popup opens a full Neovim editor window for complex text editing. Assign a custom shortcut to toggle it anytime - this feature works independently from the Vim mode simulation.
 
 ![Edit Popup](docs/images/edit-popup.gif)
 
 **How it works:**
 
-1. Select text in any application (optional)
-2. Press `ge` to open the edit popup
-3. Edit using your full Neovim configuration
-4. Press `<leader>w` to save and paste the content back, or `<Esc><Esc>` to cancel
+1. Assign a shortcut to "Toggle Edit Popup" in Settings
+2. Select text in any application (optional)
+3. Press your shortcut to open the edit popup
+4. Edit using your full Neovim configuration
+5. Type `:wq` to save and paste the content back, or close the window to cancel
 
 The edit popup uses your existing Neovim configuration, so all your plugins, keybindings, and settings are available.
 
