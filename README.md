@@ -24,7 +24,7 @@ macOS system-wide Vim keybindings and modal editor.
 ### Homebrew
 
 ```bash
-brew install --cask ovim
+brew install --cask tonisives/tap/ovim
 ```
 
 ### GitHub Releases
