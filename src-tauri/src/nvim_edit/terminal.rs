@@ -210,10 +210,13 @@ fn spawn_ghostty(nvim_path: &str, file_path: &str, geometry: Option<WindowGeomet
 
     // Add geometry if provided
     if let Some(ref geo) = geometry {
-        // Ghostty uses config-style flags
+        // Ghostty window-width/height are in terminal grid cells, not pixels
+        // Approximate: 8px per column, 16px per row
+        let cols = (geo.width / 8).max(10);
+        let rows = (geo.height / 16).max(4);
         cmd.args([
-            &format!("--window-width={}", geo.width),
-            &format!("--window-height={}", geo.height),
+            &format!("--window-width={}", cols),
+            &format!("--window-height={}", rows),
             &format!("--window-position-x={}", geo.x),
             &format!("--window-position-y={}", geo.y),
         ]);
@@ -255,8 +258,10 @@ fn spawn_kitty(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry
 
     let mut cmd = Command::new(kitty_path);
 
-    // Set window title
+    // Use single instance to avoid multiple dock icons, close window when nvim exits
+    cmd.args(["--single-instance", "--wait-for-single-instance-window-close"]);
     cmd.args(["--title", &unique_title]);
+    cmd.args(["-o", "close_on_child_death=yes"]);
 
     // Add window position/size if provided
     // Kitty uses -o for config overrides and --position for placement
