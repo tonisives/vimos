@@ -16,6 +16,7 @@ pub struct WindowGeometry {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TerminalType {
     Alacritty,
+    Ghostty,
     Kitty,
     WezTerm,
     ITerm,
@@ -26,6 +27,7 @@ impl TerminalType {
     pub fn from_string(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "alacritty" => TerminalType::Alacritty,
+            "ghostty" => TerminalType::Ghostty,
             "kitty" => TerminalType::Kitty,
             "wezterm" => TerminalType::WezTerm,
             "iterm" | "iterm2" => TerminalType::ITerm,
@@ -55,6 +57,7 @@ pub fn spawn_terminal(
 
     match terminal_type {
         TerminalType::Alacritty => spawn_alacritty(nvim_path, &file_path, geometry),
+        TerminalType::Ghostty => spawn_ghostty(nvim_path, &file_path, geometry),
         TerminalType::Kitty => spawn_kitty(nvim_path, &file_path, geometry),
         TerminalType::WezTerm => spawn_wezterm(nvim_path, &file_path, geometry),
         TerminalType::ITerm => spawn_iterm(nvim_path, &file_path, geometry),
@@ -65,7 +68,7 @@ pub fn spawn_terminal(
 /// Wait for the terminal/nvim process to exit
 pub fn wait_for_process(terminal_type: &TerminalType, process_id: Option<u32>) -> Result<(), String> {
     match terminal_type {
-        TerminalType::Alacritty | TerminalType::Kitty | TerminalType::WezTerm => {
+        TerminalType::Alacritty | TerminalType::Ghostty | TerminalType::Kitty | TerminalType::WezTerm => {
             // For direct terminals, we use sysctl to check if process is still running
             if let Some(pid) = process_id {
                 wait_for_pid(pid)
@@ -185,6 +188,51 @@ fn spawn_alacritty(nvim_path: &str, file_path: &str, geometry: Option<WindowGeom
         terminal_type: TerminalType::Alacritty,
         process_id: pid,
         child: Some(cmd),
+        window_title: Some(unique_title),
+    })
+}
+
+/// Spawn Ghostty terminal
+fn spawn_ghostty(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry>) -> Result<SpawnInfo, String> {
+    // Generate a unique window title so we can find it
+    let unique_title = format!("ovim-edit-{}", std::process::id());
+
+    // Resolve nvim path to absolute path
+    let resolved_nvim = resolve_command_path(nvim_path);
+    log::info!("Resolved nvim path: {} -> {}", nvim_path, resolved_nvim);
+
+    // On macOS, Ghostty must be launched via `open -na Ghostty.app --args ...`
+    let mut cmd = Command::new("open");
+    cmd.args(["-na", "Ghostty.app", "--args"]);
+
+    // Add window title
+    cmd.args([&format!("--title={}", unique_title)]);
+
+    // Add geometry if provided
+    if let Some(ref geo) = geometry {
+        // Ghostty uses config-style flags
+        cmd.args([
+            &format!("--window-width={}", geo.width),
+            &format!("--window-height={}", geo.height),
+            &format!("--window-position-x={}", geo.x),
+            &format!("--window-position-y={}", geo.y),
+        ]);
+    }
+
+    // Execute nvim using -e flag
+    cmd.args(["-e", &resolved_nvim, "+normal G$", file_path]);
+
+    cmd.spawn()
+        .map_err(|e| format!("Failed to spawn ghostty: {}", e))?;
+
+    // Wait a bit for nvim to start, then find its PID by the file it's editing
+    let pid = find_nvim_pid_for_file(file_path);
+    log::info!("Found nvim PID: {:?} for file: {}", pid, file_path);
+
+    Ok(SpawnInfo {
+        terminal_type: TerminalType::Ghostty,
+        process_id: pid,
+        child: None, // open command returns immediately
         window_title: Some(unique_title),
     })
 }
