@@ -129,6 +129,7 @@ pub fn trigger_nvim_edit(
     // Clone what we need for the RPC task
     let socket_path = session.socket_path.clone();
     let focus_element = session.focus_context.focused_element.clone();
+    let browser_type = browser_scripting::detect_browser_type(&session.focus_context.app_bundle_id);
 
     // Spawn async task for RPC communication
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -149,15 +150,29 @@ pub fn trigger_nvim_edit(
             let on_lines = Arc::new(move |lines: Vec<String>| {
                 let text = lines.join("\n");
 
-                // Try to update the text field via accessibility
+                // Try to update the text field via accessibility first
                 if let Some(ref element) = element_for_callback {
                     match accessibility::set_element_text(element, &text) {
                         Ok(()) => {
                             sync_flag.store(true, Ordering::SeqCst);
                             log::debug!("Live sync: updated text field ({} chars)", text.len());
+                            return;
                         }
                         Err(e) => {
-                            log::debug!("Live sync failed: {}", e);
+                            log::debug!("Accessibility live sync failed: {}", e);
+                        }
+                    }
+                }
+
+                // Fallback to browser scripting for webviews
+                if let Some(bt) = browser_type {
+                    match browser_scripting::set_browser_element_text(bt, &text) {
+                        Ok(()) => {
+                            sync_flag.store(true, Ordering::SeqCst);
+                            log::debug!("Live sync (browser): updated text field ({} chars)", text.len());
+                        }
+                        Err(e) => {
+                            log::debug!("Browser live sync failed: {}", e);
                         }
                     }
                 }
@@ -217,14 +232,12 @@ pub fn trigger_nvim_edit(
             // Small delay to ensure file is written and focus is settled
             thread::sleep(Duration::from_millis(100));
 
-            // Check if live sync was working - if so, text should already be updated
-            // But we still do clipboard fallback to handle the final state
+            // Check if live sync was working - if so, text is already updated, skip clipboard paste
             let did_live_sync = live_sync_worked.load(Ordering::SeqCst);
             log::info!("Live sync status: {}", if did_live_sync { "worked" } else { "not used" });
 
-            // Complete the session (read file, restore text) - focus already restored above
-            // Always do this as a final sync, even if live sync was working
-            if let Err(e) = complete_edit_session_no_focus(&manager_clone2, &session_id, &session.original_text) {
+            // Complete the session - skip clipboard paste if live sync worked
+            if let Err(e) = complete_edit_session_no_focus(&manager_clone2, &session_id, did_live_sync) {
                 log::error!("Error completing edit session: {}", e);
             }
 
@@ -241,12 +254,13 @@ pub fn trigger_nvim_edit(
     Ok(())
 }
 
-/// Complete the edit session: read edited text and restore to original field
+/// Complete the edit session: clean up temp file and optionally restore text via clipboard
 /// Note: Focus should already be restored before calling this function
+/// If live_sync_worked is true, the text field already has the correct content, so we skip clipboard paste
 fn complete_edit_session_no_focus(
     manager: &EditSessionManager,
     session_id: &uuid::Uuid,
-    _original_text: &str,
+    live_sync_worked: bool,
 ) -> Result<(), String> {
     // Read the temp file
     let session = manager.get_session(session_id)
@@ -274,10 +288,16 @@ fn complete_edit_session_no_focus(
     // Clean up temp file
     let _ = std::fs::remove_file(&session.temp_file);
 
+    // If live sync worked, text is already in the field - no need for clipboard paste
+    if live_sync_worked {
+        log::info!("Live sync worked, skipping clipboard paste");
+        return Ok(());
+    }
+
     // Small delay for focus to settle (focus was restored before this call)
     thread::sleep(Duration::from_millis(100));
 
-    log::info!("Replacing text via clipboard");
+    log::info!("Replacing text via clipboard (live sync was not available)");
 
     // Replace text via clipboard
     replace_text_via_clipboard(&edited_text)?;
