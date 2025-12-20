@@ -47,7 +47,7 @@ Requires [Rust](https://rustup.rs/), [Node.js](https://nodejs.org/) v18+, and [p
 
 - macOS 10.15 (Catalina) or later
 - **Accessibility permission** - Grant in System Settings > Privacy & Security > Accessibility
-- Terminal app installed. `Alacritty` is most actively supported and recommended.
+- Terminal app. `Alacritty` is recommended. Kitty, Terminal.app and WezTerm have limited support.
 
 ## Quick Start
 
