@@ -1,6 +1,7 @@
-//! Terminal spawning for "Edit with Neovim" feature
+//! Terminal spawning for external editor feature
 //!
-//! This module provides a unified interface for spawning different terminal emulators.
+//! This module provides a unified interface for spawning different terminal emulators
+//! with various text editors (Neovim, Vim, Helix, etc.)
 
 mod alacritty;
 mod applescript_utils;
@@ -18,6 +19,7 @@ pub use kitty::KittySpawner;
 pub use terminal_app::TerminalAppSpawner;
 pub use wezterm::WezTermSpawner;
 
+use crate::config::NvimEditSettings;
 use std::path::Path;
 use std::process::Child;
 
@@ -69,32 +71,31 @@ pub trait TerminalSpawner {
     #[allow(dead_code)]
     fn terminal_type(&self) -> TerminalType;
 
-    /// Spawn a terminal with nvim editing the given file
+    /// Spawn a terminal with the configured editor editing the given file
     fn spawn(
         &self,
-        nvim_path: &str,
+        settings: &NvimEditSettings,
         file_path: &str,
         geometry: Option<WindowGeometry>,
     ) -> Result<SpawnInfo, String>;
 }
 
-/// Spawn a terminal with nvim editing the given file
+/// Spawn a terminal with the configured editor editing the given file
 pub fn spawn_terminal(
-    terminal: &str,
-    nvim_path: &str,
+    settings: &NvimEditSettings,
     temp_file: &Path,
     geometry: Option<WindowGeometry>,
 ) -> Result<SpawnInfo, String> {
-    let terminal_type = TerminalType::from_string(terminal);
+    let terminal_type = TerminalType::from_string(&settings.terminal);
     let file_path = temp_file.to_string_lossy();
 
     match terminal_type {
-        TerminalType::Alacritty => AlacrittySpawner.spawn(nvim_path, &file_path, geometry),
-        TerminalType::Ghostty => GhosttySpawner.spawn(nvim_path, &file_path, geometry),
-        TerminalType::Kitty => KittySpawner.spawn(nvim_path, &file_path, geometry),
-        TerminalType::WezTerm => WezTermSpawner.spawn(nvim_path, &file_path, geometry),
-        TerminalType::ITerm => ITermSpawner.spawn(nvim_path, &file_path, geometry),
-        TerminalType::Default => TerminalAppSpawner.spawn(nvim_path, &file_path, geometry),
+        TerminalType::Alacritty => AlacrittySpawner.spawn(settings, &file_path, geometry),
+        TerminalType::Ghostty => GhosttySpawner.spawn(settings, &file_path, geometry),
+        TerminalType::Kitty => KittySpawner.spawn(settings, &file_path, geometry),
+        TerminalType::WezTerm => WezTermSpawner.spawn(settings, &file_path, geometry),
+        TerminalType::ITerm => ITermSpawner.spawn(settings, &file_path, geometry),
+        TerminalType::Default => TerminalAppSpawner.spawn(settings, &file_path, geometry),
     }
 }
 

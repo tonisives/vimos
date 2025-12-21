@@ -5,6 +5,7 @@ use std::process::Command;
 use super::applescript_utils::set_window_size;
 use super::process_utils::resolve_command_path;
 use super::{SpawnInfo, TerminalSpawner, TerminalType, WindowGeometry};
+use crate::config::NvimEditSettings;
 
 pub struct WezTermSpawner;
 
@@ -15,13 +16,17 @@ impl TerminalSpawner for WezTermSpawner {
 
     fn spawn(
         &self,
-        nvim_path: &str,
+        settings: &NvimEditSettings,
         file_path: &str,
         geometry: Option<WindowGeometry>,
     ) -> Result<SpawnInfo, String> {
-        // Resolve nvim path
-        let resolved_nvim = resolve_command_path(nvim_path);
-        log::info!("Resolved nvim path: {} -> {}", nvim_path, resolved_nvim);
+        // Get editor path and args from settings
+        let editor_path = settings.editor_path();
+        let editor_args = settings.editor_args();
+
+        // Resolve editor path
+        let resolved_editor = resolve_command_path(&editor_path);
+        log::info!("Resolved editor path: {} -> {}", editor_path, resolved_editor);
 
         let mut cmd = Command::new("wezterm");
 
@@ -39,14 +44,18 @@ impl TerminalSpawner for WezTermSpawner {
             cmd.args(["start", "--always-new-process", "--"]);
         }
 
-        cmd.args([&resolved_nvim, "+normal G$", file_path]);
+        cmd.arg(&resolved_editor);
+        for arg in &editor_args {
+            cmd.arg(arg);
+        }
+        cmd.arg(file_path);
 
         let child = cmd
             .spawn()
             .map_err(|e| format!("Failed to spawn wezterm: {}", e))?;
 
         // Get the wezterm process PID - with --always-new-process, the wezterm
-        // process itself will block until nvim exits, so we can track it directly
+        // process itself will block until editor exits, so we can track it directly
         let wezterm_pid = child.id();
         log::info!("WezTerm process PID: {}", wezterm_pid);
 

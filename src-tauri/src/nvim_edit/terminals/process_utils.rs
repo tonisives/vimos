@@ -41,9 +41,9 @@ pub fn wait_for_pid(pid: u32) -> Result<(), String> {
     Ok(())
 }
 
-/// Find the nvim process editing a specific file
-pub fn find_nvim_pid_for_file(file_path: &str) -> Option<u32> {
-    // Small delay to let nvim start
+/// Find the editor process editing a specific file
+pub fn find_editor_pid_for_file(file_path: &str, process_name: &str) -> Option<u32> {
+    // Small delay to let editor start
     thread::sleep(Duration::from_millis(500));
 
     // Use lsof to find the process that has our file open
@@ -59,13 +59,17 @@ pub fn find_nvim_pid_for_file(file_path: &str) -> Option<u32> {
         }
     }
 
-    // Fallback: find most recent nvim
-    find_nvim_pid()
+    // Fallback: find most recent process matching the editor name
+    if !process_name.is_empty() {
+        find_process_by_name(process_name)
+    } else {
+        None
+    }
 }
 
-/// Find the most recently started nvim process ID
-fn find_nvim_pid() -> Option<u32> {
-    let output = Command::new("pgrep").args(["-n", "nvim"]).output().ok()?;
+/// Find the most recently started process by name
+fn find_process_by_name(name: &str) -> Option<u32> {
+    let output = Command::new("pgrep").args(["-n", name]).output().ok()?;
 
     if output.status.success() {
         let pid_str = String::from_utf8_lossy(&output.stdout);

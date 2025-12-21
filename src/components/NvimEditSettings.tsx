@@ -23,6 +23,13 @@ const TERMINAL_OPTIONS = [
   { value: "default", label: "Terminal.app" },
 ]
 
+const EDITOR_OPTIONS = [
+  { value: "neovim", label: "Neovim" },
+  { value: "vim", label: "Vim" },
+  { value: "helix", label: "Helix" },
+  { value: "custom", label: "Custom" },
+]
+
 export function NvimEditSettings({ settings, onUpdate }: Props) {
   const [isRecording, setIsRecording] = useState(false)
   const [displayName, setDisplayName] = useState<string | null>(null)
@@ -73,7 +80,7 @@ export function NvimEditSettings({ settings, onUpdate }: Props) {
     <div className="settings-section">
       <h2>Edit Popup</h2>
       <p className="section-description">
-        Press a shortcut while focused on any text field to edit its contents in Neovim.
+        Press a shortcut while focused on any text field to edit its contents in your preferred terminal editor.
       </p>
 
       <div className="form-group">
@@ -83,7 +90,7 @@ export function NvimEditSettings({ settings, onUpdate }: Props) {
             checked={nvimEdit.enabled}
             onChange={(e) => updateNvimEdit({ enabled: e.target.checked })}
           />
-          Enable "Edit with Neovim" feature
+          Enable external editor feature
         </label>
       </div>
 
@@ -111,6 +118,22 @@ export function NvimEditSettings({ settings, onUpdate }: Props) {
       </div>
 
       <div className="form-group">
+        <label htmlFor="editor">Editor</label>
+        <select
+          id="editor"
+          value={nvimEdit.editor}
+          onChange={(e) => updateNvimEdit({ editor: e.target.value })}
+          disabled={!nvimEdit.enabled}
+        >
+          {EDITOR_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="form-group">
         <label htmlFor="terminal">Terminal</label>
         <select
           id="terminal"
@@ -132,16 +155,20 @@ export function NvimEditSettings({ settings, onUpdate }: Props) {
       </div>
 
       <div className="form-group">
-        <label htmlFor="nvim-path">Neovim path</label>
+        <label htmlFor="nvim-path">Editor path (optional)</label>
         <input
           type="text"
           id="nvim-path"
           value={nvimEdit.nvim_path}
           onChange={(e) => updateNvimEdit({ nvim_path: e.target.value })}
-          placeholder="nvim"
+          placeholder={nvimEdit.editor === "neovim" ? "nvim" : nvimEdit.editor === "vim" ? "vim" : nvimEdit.editor === "helix" ? "hx" : ""}
           disabled={!nvimEdit.enabled}
         />
-        <span className="hint">Path to nvim binary (use "nvim" if it's in your PATH)</span>
+        <span className="hint">
+          {nvimEdit.editor === "custom"
+            ? "Full path to your editor binary"
+            : "Leave empty to use default, or specify a custom path"}
+        </span>
       </div>
 
       <div className="form-group">

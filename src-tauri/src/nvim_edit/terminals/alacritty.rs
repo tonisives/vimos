@@ -5,8 +5,9 @@ use std::process::Command;
 use super::applescript_utils::{
     find_alacritty_window_by_title, focus_alacritty_window_by_index, set_window_bounds_atomic,
 };
-use super::process_utils::{find_nvim_pid_for_file, resolve_command_path};
+use super::process_utils::{find_editor_pid_for_file, resolve_command_path};
 use super::{SpawnInfo, TerminalSpawner, TerminalType, WindowGeometry};
+use crate::config::NvimEditSettings;
 
 pub struct AlacrittySpawner;
 
@@ -17,16 +18,21 @@ impl TerminalSpawner for AlacrittySpawner {
 
     fn spawn(
         &self,
-        nvim_path: &str,
+        settings: &NvimEditSettings,
         file_path: &str,
         geometry: Option<WindowGeometry>,
     ) -> Result<SpawnInfo, String> {
         // Generate a unique window title so we can find it
         let unique_title = format!("ovim-edit-{}", std::process::id());
 
-        // Resolve nvim path to absolute path (msg create-window doesn't inherit PATH)
-        let resolved_nvim = resolve_command_path(nvim_path);
-        log::info!("Resolved nvim path: {} -> {}", nvim_path, resolved_nvim);
+        // Get editor path and args from settings
+        let editor_path = settings.editor_path();
+        let editor_args = settings.editor_args();
+        let process_name = settings.editor_process_name();
+
+        // Resolve editor path to absolute path (msg create-window doesn't inherit PATH)
+        let resolved_editor = resolve_command_path(&editor_path);
+        log::info!("Resolved editor path: {} -> {}", editor_path, resolved_editor);
 
         // Start a watcher thread to find the window, set bounds, and focus it
         {
@@ -57,26 +63,31 @@ impl TerminalSpawner for AlacrittySpawner {
             (80, 24)
         };
 
+        // Build the command arguments: editor path, editor args, file path
+        let mut cmd_args: Vec<String> = vec![
+            "msg".to_string(),
+            "create-window".to_string(),
+            "-o".to_string(),
+            format!("window.title=\"{}\"", unique_title),
+            "-o".to_string(),
+            "window.dynamic_title=false".to_string(),
+            "-o".to_string(),
+            "window.startup_mode=\"Windowed\"".to_string(),
+            "-o".to_string(),
+            format!("window.dimensions.columns={}", init_columns),
+            "-o".to_string(),
+            format!("window.dimensions.lines={}", init_lines),
+            "-e".to_string(),
+            resolved_editor.clone(),
+        ];
+        for arg in &editor_args {
+            cmd_args.push(arg.to_string());
+        }
+        cmd_args.push(file_path.to_string());
+
         // Use `alacritty msg create-window` to create window in existing daemon
         let result = Command::new("alacritty")
-            .args([
-                "msg",
-                "create-window",
-                "-o",
-                &format!("window.title=\"{}\"", unique_title),
-                "-o",
-                "window.dynamic_title=false",
-                "-o",
-                "window.startup_mode=\"Windowed\"",
-                "-o",
-                &format!("window.dimensions.columns={}", init_columns),
-                "-o",
-                &format!("window.dimensions.lines={}", init_lines),
-                "-e",
-                &resolved_nvim,
-                "+normal G$",
-                file_path,
-            ])
+            .args(&cmd_args)
             .spawn();
 
         // If msg create-window fails (no daemon running), fall back to regular spawn
@@ -84,31 +95,36 @@ impl TerminalSpawner for AlacrittySpawner {
             Ok(child) => child,
             Err(_) => {
                 log::info!("msg create-window failed, falling back to regular spawn");
+                // Build fallback args (without msg create-window)
+                let mut fallback_args: Vec<String> = vec![
+                    "-o".to_string(),
+                    format!("window.title=\"{}\"", unique_title),
+                    "-o".to_string(),
+                    "window.dynamic_title=false".to_string(),
+                    "-o".to_string(),
+                    "window.startup_mode=\"Windowed\"".to_string(),
+                    "-o".to_string(),
+                    format!("window.dimensions.columns={}", init_columns),
+                    "-o".to_string(),
+                    format!("window.dimensions.lines={}", init_lines),
+                    "-e".to_string(),
+                    resolved_editor.clone(),
+                ];
+                for arg in &editor_args {
+                    fallback_args.push(arg.to_string());
+                }
+                fallback_args.push(file_path.to_string());
+
                 Command::new("alacritty")
-                    .args([
-                        "-o",
-                        &format!("window.title=\"{}\"", unique_title),
-                        "-o",
-                        "window.dynamic_title=false",
-                        "-o",
-                        "window.startup_mode=\"Windowed\"",
-                        "-o",
-                        &format!("window.dimensions.columns={}", init_columns),
-                        "-o",
-                        &format!("window.dimensions.lines={}", init_lines),
-                        "-e",
-                        &resolved_nvim,
-                        "+normal G$",
-                        file_path,
-                    ])
+                    .args(&fallback_args)
                     .spawn()
                     .map_err(|e| format!("Failed to spawn alacritty: {}", e))?
             }
         };
 
-        // Wait a bit for nvim to start, then find its PID by the file it's editing
-        let pid = find_nvim_pid_for_file(file_path);
-        log::info!("Found nvim PID: {:?} for file: {}", pid, file_path);
+        // Wait a bit for editor to start, then find its PID by the file it's editing
+        let pid = find_editor_pid_for_file(file_path, process_name);
+        log::info!("Found editor PID: {:?} for file: {}", pid, file_path);
 
         Ok(SpawnInfo {
             terminal_type: TerminalType::Alacritty,

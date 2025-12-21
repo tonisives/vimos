@@ -2,8 +2,9 @@
 
 use std::process::Command;
 
-use super::process_utils::{find_nvim_pid_for_file, resolve_command_path};
+use super::process_utils::{find_editor_pid_for_file, resolve_command_path};
 use super::{SpawnInfo, TerminalSpawner, TerminalType, WindowGeometry};
+use crate::config::NvimEditSettings;
 
 pub struct KittySpawner;
 
@@ -14,16 +15,21 @@ impl TerminalSpawner for KittySpawner {
 
     fn spawn(
         &self,
-        nvim_path: &str,
+        settings: &NvimEditSettings,
         file_path: &str,
         geometry: Option<WindowGeometry>,
     ) -> Result<SpawnInfo, String> {
         // Generate a unique window title
         let unique_title = format!("ovim-edit-{}", std::process::id());
 
-        // Resolve nvim path
-        let resolved_nvim = resolve_command_path(nvim_path);
-        log::info!("Resolved nvim path: {} -> {}", nvim_path, resolved_nvim);
+        // Get editor path and args from settings
+        let editor_path = settings.editor_path();
+        let editor_args = settings.editor_args();
+        let process_name = settings.editor_process_name();
+
+        // Resolve editor path
+        let resolved_editor = resolve_command_path(&editor_path);
+        log::info!("Resolved editor path: {} -> {}", editor_path, resolved_editor);
 
         // Try to find kitty - check common locations on macOS
         let kitty_path =
@@ -35,7 +41,7 @@ impl TerminalSpawner for KittySpawner {
 
         let mut cmd = Command::new(kitty_path);
 
-        // Use single instance to avoid multiple dock icons, close window when nvim exits
+        // Use single instance to avoid multiple dock icons, close window when editor exits
         cmd.args(["--single-instance", "--wait-for-single-instance-window-close"]);
         cmd.args(["--title", &unique_title]);
         cmd.args(["-o", "close_on_child_death=yes"]);
@@ -55,15 +61,19 @@ impl TerminalSpawner for KittySpawner {
         }
 
         // Kitty runs the command directly (no -e flag needed)
-        cmd.args([&resolved_nvim, "+normal G$", file_path]);
+        cmd.arg(&resolved_editor);
+        for arg in &editor_args {
+            cmd.arg(arg);
+        }
+        cmd.arg(file_path);
 
         let child = cmd
             .spawn()
             .map_err(|e| format!("Failed to spawn kitty: {}", e))?;
 
-        // Wait a bit for nvim to start, then find its PID by the file it's editing
-        let pid = find_nvim_pid_for_file(file_path);
-        log::info!("Found nvim PID: {:?} for file: {}", pid, file_path);
+        // Wait a bit for editor to start, then find its PID by the file it's editing
+        let pid = find_editor_pid_for_file(file_path, process_name);
+        log::info!("Found editor PID: {:?} for file: {}", pid, file_path);
 
         Ok(SpawnInfo {
             terminal_type: TerminalType::Kitty,
