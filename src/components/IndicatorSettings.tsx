@@ -55,6 +55,20 @@ export function IndicatorSettings({ settings, onUpdate }: Props) {
       <h2>Indicator</h2>
 
       <div className="indicator-controls">
+        <div className="form-group checkbox-group">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={settings.enabled}
+              onChange={(e) => onUpdate({ enabled: e.target.checked })}
+            />
+            <span>Enable vim mode and indicator</span>
+          </label>
+          <p className="setting-description">
+            When disabled, all key presses pass through normally and the indicator is hidden.
+          </p>
+        </div>
+
         <div className="slider-group">
           <label>
             Alpha: {Math.round(settings.indicator_opacity * 100)}%

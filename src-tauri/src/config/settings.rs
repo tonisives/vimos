@@ -92,6 +92,9 @@ impl Default for ModeColors {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// Enable vim mode and indicator
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
     /// The key that toggles vim mode (keycode string)
     pub vim_key: String,
     /// Modifier keys required for vim key activation
@@ -135,9 +138,14 @@ fn default_font_family() -> String {
     "system-ui, -apple-system, sans-serif".to_string()
 }
 
+fn default_enabled() -> bool {
+    true
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            enabled: true,
             vim_key: "caps_lock".to_string(),
             vim_key_modifiers: VimKeyModifiers::default(),
             indicator_position: 1, // Top center

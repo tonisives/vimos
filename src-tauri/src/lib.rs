@@ -410,6 +410,12 @@ fn create_keyboard_callback(
         // Check if this is the configured vim key with matching modifiers
         if event.is_key_down {
             let settings_guard = settings.lock().unwrap();
+
+            // If vim mode is disabled, pass through all keys
+            if !settings_guard.enabled {
+                return Some(event);
+            }
+
             let vim_key = KeyCode::from_name(&settings_guard.vim_key);
             let mods = &settings_guard.vim_key_modifiers;
 
@@ -448,6 +454,14 @@ fn create_keyboard_callback(
                         _ => None,
                     };
                 }
+            }
+        }
+
+        // Check if vim mode is disabled for non-key-down events
+        {
+            let settings_guard = settings.lock().unwrap();
+            if !settings_guard.enabled {
+                return Some(event);
             }
         }
 

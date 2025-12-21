@@ -38,6 +38,7 @@ export interface ModeColors {
 }
 
 export interface Settings {
+  enabled: boolean;
   vim_key: string;
   vim_key_modifiers: VimKeyModifiers;
   indicator_position: number;

@@ -25,6 +25,7 @@ interface ModeColors {
 }
 
 interface Settings {
+  enabled: boolean
   indicator_position: number
   indicator_opacity: number
   indicator_size: number
@@ -217,6 +218,14 @@ function Widget({ type, fontFamily }: { type: WidgetType; fontFamily: string }) 
 
 async function applyWindowSettings(settings: Settings) {
   const window = getCurrentWindow()
+
+  // Hide/show window based on enabled setting
+  if (!settings.enabled) {
+    await window.hide()
+    return
+  }
+  await window.show()
+
   const baseSize = Math.round(BASE_SIZE * settings.indicator_size)
 
   // Calculate height based on active widgets
@@ -282,7 +291,6 @@ async function applyWindowSettings(settings: Settings) {
   try {
     await window.setSize(new LogicalSize(width, height))
     await window.setPosition(new LogicalPosition(Math.round(x), Math.round(y)))
-    console.log("Window settings applied successfully")
   } catch (err) {
     console.error("Failed to apply window settings:", err)
   }
@@ -294,15 +302,15 @@ function Indicator() {
 
   useEffect(() => {
     invoke<Settings>("get_settings")
-      .then((s) => {
+      .then(async (s) => {
         setSettings(s)
-        applyWindowSettings(s)
+        await applyWindowSettings(s)
       })
       .catch((e) => console.error("Failed to get settings:", e))
 
-    const unlistenSettings = listen<Settings>("settings-changed", (event) => {
+    const unlistenSettings = listen<Settings>("settings-changed", async (event) => {
       setSettings(event.payload)
-      applyWindowSettings(event.payload)
+      await applyWindowSettings(event.payload)
     })
 
     return () => {
