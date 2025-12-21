@@ -95,12 +95,33 @@ fn wait_for_pid(pid: u32) -> Result<(), String> {
     use std::time::Duration;
 
     loop {
-        // Check if process is still running using kill(pid, 0)
-        let result = unsafe { libc::kill(pid as i32, 0) };
-        if result != 0 {
-            // Process has exited
+        // First try waitpid with WNOHANG to reap zombie children (for processes we spawned)
+        let mut status: libc::c_int = 0;
+        let wait_result = unsafe { libc::waitpid(pid as i32, &mut status, libc::WNOHANG) };
+
+        if wait_result == pid as i32 {
+            // Process has exited and been reaped
+            log::info!("Process {} reaped via waitpid", pid);
             break;
+        } else if wait_result == -1 {
+            // Error - check errno
+            let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            if errno == libc::ECHILD {
+                // Not our child - fall back to kill(pid, 0) check
+                let kill_result = unsafe { libc::kill(pid as i32, 0) };
+                if kill_result != 0 {
+                    // Process doesn't exist
+                    log::info!("Process {} no longer exists (kill check)", pid);
+                    break;
+                }
+            } else {
+                // Other error
+                log::warn!("waitpid error for {}: errno={}", pid, errno);
+                break;
+            }
         }
+        // wait_result == 0 means process still running, continue polling
+
         // Poll very fast (10ms) so we can restore focus before the window closes
         thread::sleep(Duration::from_millis(10));
     }
@@ -210,10 +231,13 @@ fn spawn_ghostty(nvim_path: &str, file_path: &str, geometry: Option<WindowGeomet
 
     // Add geometry if provided
     if let Some(ref geo) = geometry {
-        // Ghostty uses config-style flags
+        // Ghostty window-width/height are in terminal grid cells, not pixels
+        // Approximate: 8px per column, 16px per row
+        let cols = (geo.width / 8).max(10);
+        let rows = (geo.height / 16).max(4);
         cmd.args([
-            &format!("--window-width={}", geo.width),
-            &format!("--window-height={}", geo.height),
+            &format!("--window-width={}", cols),
+            &format!("--window-height={}", rows),
             &format!("--window-position-x={}", geo.x),
             &format!("--window-position-y={}", geo.y),
         ]);
@@ -239,70 +263,107 @@ fn spawn_ghostty(nvim_path: &str, file_path: &str, geometry: Option<WindowGeomet
 
 /// Spawn Kitty terminal
 fn spawn_kitty(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry>) -> Result<SpawnInfo, String> {
-    // Use "+normal G$" to move cursor to end of file
-    let mut cmd = Command::new("kitty");
+    // Generate a unique window title
+    let unique_title = format!("ovim-edit-{}", std::process::id());
+
+    // Resolve nvim path
+    let resolved_nvim = resolve_command_path(nvim_path);
+    log::info!("Resolved nvim path: {} -> {}", nvim_path, resolved_nvim);
+
+    // Try to find kitty - check common locations on macOS
+    let kitty_path = if std::path::Path::new("/Applications/kitty.app/Contents/MacOS/kitty").exists() {
+        "/Applications/kitty.app/Contents/MacOS/kitty"
+    } else {
+        "kitty" // Fall back to PATH
+    };
+
+    let mut cmd = Command::new(kitty_path);
+
+    // Use single instance to avoid multiple dock icons, close window when nvim exits
+    cmd.args(["--single-instance", "--wait-for-single-instance-window-close"]);
+    cmd.args(["--title", &unique_title]);
+    cmd.args(["-o", "close_on_child_death=yes"]);
 
     // Add window position/size if provided
-    // Kitty uses -o for config overrides
+    // Kitty uses -o for config overrides and --position for placement
     if let Some(ref geo) = geometry {
         cmd.args([
-            "-o", &format!("initial_window_width={}", geo.width),
-            "-o", &format!("initial_window_height={}", geo.height),
+            "--position", &format!("{}x{}", geo.x, geo.y),
+            "-o", &format!("initial_window_width={}c", geo.width / 8), // Convert to cells (approx 8px per char)
+            "-o", &format!("initial_window_height={}c", geo.height / 16), // Convert to cells (approx 16px per line)
             "-o", "remember_window_size=no",
         ]);
-        // Note: Kitty doesn't have direct position args, but we can try osascript after
     }
 
-    cmd.args([nvim_path, "+normal G$", file_path]);
+    // Kitty runs the command directly (no -e flag needed)
+    cmd.args([&resolved_nvim, "+normal G$", file_path]);
 
     let child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn kitty: {}", e))?;
 
-    let pid = child.id();
-
-    // Move window to position if geometry specified (using AppleScript)
-    if let Some(ref geo) = geometry {
-        move_window_to_position("kitty", geo.x, geo.y);
-    }
+    // Wait a bit for nvim to start, then find its PID by the file it's editing
+    // We need to track nvim's PID, not kitty's, to know when editing is done
+    let pid = find_nvim_pid_for_file(file_path);
+    log::info!("Found nvim PID: {:?} for file: {}", pid, file_path);
 
     Ok(SpawnInfo {
         terminal_type: TerminalType::Kitty,
-        process_id: Some(pid),
+        process_id: pid,
         child: Some(child),
-        window_title: None,
+        window_title: Some(unique_title),
     })
 }
 
 /// Spawn WezTerm terminal
 fn spawn_wezterm(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry>) -> Result<SpawnInfo, String> {
-    // Use "+normal G$" to move cursor to end of file
+    // Resolve nvim path
+    let resolved_nvim = resolve_command_path(nvim_path);
+    log::info!("Resolved nvim path: {} -> {}", nvim_path, resolved_nvim);
+
     let mut cmd = Command::new("wezterm");
 
-    // WezTerm supports --position for window placement
-    if let Some(geo) = geometry {
+    // Use --always-new-process so wezterm blocks until the command exits.
+    // Without this flag, wezterm start returns immediately by connecting to
+    // an existing GUI instance, and we can't wait for nvim to finish.
+    // WezTerm only supports --position for window placement (no --width/--height)
+    // Size must be set via config (initial_rows/initial_cols)
+    // Use "screen:" prefix for absolute screen coordinates (matching macOS accessibility API)
+    if let Some(ref geo) = geometry {
         cmd.args([
             "start",
-            "--position", &format!("{},{}", geo.x, geo.y),
-            "--width", &format!("{}", geo.width),
-            "--height", &format!("{}", geo.height),
+            "--always-new-process",
+            "--position", &format!("screen:{},{}", geo.x, geo.y),
             "--",
         ]);
     } else {
-        cmd.args(["start", "--"]);
+        cmd.args(["start", "--always-new-process", "--"]);
     }
 
-    cmd.args([nvim_path, "+normal G$", file_path]);
+    cmd.args([&resolved_nvim, "+normal G$", file_path]);
 
     let child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn wezterm: {}", e))?;
 
-    let pid = child.id();
+    // Get the wezterm process PID - with --always-new-process, the wezterm
+    // process itself will block until nvim exits, so we can track it directly
+    let wezterm_pid = child.id();
+    log::info!("WezTerm process PID: {}", wezterm_pid);
+
+    // If geometry specified, try to resize using AppleScript after window appears
+    if let Some(ref geo) = geometry {
+        let width = geo.width;
+        let height = geo.height;
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            set_window_size_applescript("WezTerm", width, height);
+        });
+    }
 
     Ok(SpawnInfo {
         terminal_type: TerminalType::WezTerm,
-        process_id: Some(pid),
+        process_id: Some(wezterm_pid),
         child: Some(child),
         window_title: None,
     })
@@ -312,6 +373,7 @@ fn spawn_wezterm(nvim_path: &str, file_path: &str, geometry: Option<WindowGeomet
 fn spawn_iterm(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry>) -> Result<SpawnInfo, String> {
     // Use AppleScript to open iTerm and run nvim with position/size
     // Use "+normal G$" to move cursor to end of file
+    // Run nvim followed by exit so the shell closes when nvim exits
     let script = if let Some(geo) = geometry {
         format!(
             r#"
@@ -320,7 +382,7 @@ fn spawn_iterm(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry
                 set newWindow to (create window with default profile)
                 set bounds of newWindow to {{{}, {}, {}, {}}}
                 tell current session of newWindow
-                    write text "{} '+normal G$' '{}'"
+                    write text "{} '+normal G$' '{}'; exit"
                 end tell
             end tell
             "#,
@@ -334,7 +396,7 @@ fn spawn_iterm(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry
                 activate
                 set newWindow to (create window with default profile)
                 tell current session of newWindow
-                    write text "{} '+normal G$' '{}'"
+                    write text "{} '+normal G$' '{}'; exit"
                 end tell
             end tell
             "#,
@@ -445,7 +507,29 @@ fn find_nvim_pid() -> Option<u32> {
     }
 }
 
+/// Set window size using AppleScript
+fn set_window_size_applescript(app_name: &str, width: u32, height: u32) {
+    let script = format!(
+        r#"
+        tell application "System Events"
+            tell process "{}"
+                try
+                    set size of front window to {{{}, {}}}
+                end try
+            end tell
+        end tell
+        "#,
+        app_name, width, height
+    );
+
+    let _ = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output();
+}
+
 /// Move a window to a specific position using AppleScript
+#[allow(dead_code)]
 fn move_window_to_position(app_name: &str, x: i32, y: i32) {
     // Small delay to let the window appear
     std::thread::sleep(std::time::Duration::from_millis(200));

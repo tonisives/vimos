@@ -19,7 +19,6 @@ interface RecordedKey {
 
 const TERMINAL_OPTIONS = [
   { value: "alacritty", label: "Alacritty" },
-  { value: "ghostty", label: "Ghostty" },
   { value: "kitty", label: "Kitty" },
   { value: "wezterm", label: "WezTerm" },
   { value: "iterm", label: "iTerm2" },
@@ -139,8 +138,7 @@ export function NvimEditSettings({ settings, onUpdate }: Props) {
         </select>
         {nvimEdit.terminal !== "alacritty" && (
           <div className="alert alert-warning">
-            Terminal programs with tabs have limited support. Use Alacritty for best performance and
-            tested compatibility.
+            Limited support. Please use Alacritty for best performance and tested compatibility.
           </div>
         )}
       </div>
