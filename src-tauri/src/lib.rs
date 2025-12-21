@@ -14,7 +14,7 @@ use std::thread;
 use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
-    AppHandle, Emitter, Manager, State,
+    AppHandle, Emitter, Listener, Manager, State,
 };
 
 #[cfg(target_os = "macos")]
@@ -632,6 +632,22 @@ pub fn run() {
                         app.exit(0);
                     }
                     _ => {}
+                });
+
+                // Apply initial show_in_menu_bar setting
+                let initial_settings = Settings::load();
+                if let Err(e) = tray.set_visible(initial_settings.show_in_menu_bar) {
+                    log::error!("Failed to set initial tray visibility: {}", e);
+                }
+
+                // Listen for settings changes to update tray visibility
+                let tray_clone = tray.clone();
+                app.listen("settings-changed", move |event| {
+                    if let Ok(new_settings) = serde_json::from_str::<Settings>(event.payload()) {
+                        if let Err(e) = tray_clone.set_visible(new_settings.show_in_menu_bar) {
+                            log::error!("Failed to update tray visibility: {}", e);
+                        }
+                    }
                 });
             }
 

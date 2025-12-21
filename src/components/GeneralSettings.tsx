@@ -12,11 +12,6 @@ interface PermissionStatus {
   capture_running: boolean
 }
 
-const ICON_STYLE_OPTIONS = [
-  { value: true, label: "Menu Bar" },
-  { value: false, label: "Hidden" },
-]
-
 export function GeneralSettings({ settings, onUpdate }: Props) {
   const [permissionStatus, setPermissionStatus] = useState<PermissionStatus | null>(null)
 
@@ -92,20 +87,6 @@ export function GeneralSettings({ settings, onUpdate }: Props) {
         </label>
       </div>
 
-      <div className="form-group">
-        <label htmlFor="icon-style">Menu bar icon</label>
-        <select
-          id="icon-style"
-          value={settings.show_in_menu_bar ? "true" : "false"}
-          onChange={(e) => onUpdate({ show_in_menu_bar: e.target.value === "true" })}
-        >
-          {ICON_STYLE_OPTIONS.map((opt) => (
-            <option key={String(opt.value)} value={String(opt.value)}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
     </div>
   )
 }
