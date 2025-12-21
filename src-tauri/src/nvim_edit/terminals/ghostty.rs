@@ -2,8 +2,9 @@
 
 use std::process::Command;
 
-use super::process_utils::{find_nvim_pid_for_file, resolve_command_path};
+use super::process_utils::{find_editor_pid_for_file, resolve_command_path};
 use super::{SpawnInfo, TerminalSpawner, TerminalType, WindowGeometry};
+use crate::config::NvimEditSettings;
 
 pub struct GhosttySpawner;
 
@@ -14,16 +15,21 @@ impl TerminalSpawner for GhosttySpawner {
 
     fn spawn(
         &self,
-        nvim_path: &str,
+        settings: &NvimEditSettings,
         file_path: &str,
         geometry: Option<WindowGeometry>,
     ) -> Result<SpawnInfo, String> {
         // Generate a unique window title so we can find it
         let unique_title = format!("ovim-edit-{}", std::process::id());
 
-        // Resolve nvim path to absolute path
-        let resolved_nvim = resolve_command_path(nvim_path);
-        log::info!("Resolved nvim path: {} -> {}", nvim_path, resolved_nvim);
+        // Get editor path and args from settings
+        let editor_path = settings.editor_path();
+        let editor_args = settings.editor_args();
+        let process_name = settings.editor_process_name();
+
+        // Resolve editor path to absolute path
+        let resolved_editor = resolve_command_path(&editor_path);
+        log::info!("Resolved editor path: {} -> {}", editor_path, resolved_editor);
 
         // On macOS, Ghostty must be launched via `open -na Ghostty.app --args ...`
         let mut cmd = Command::new("open");
@@ -45,15 +51,20 @@ impl TerminalSpawner for GhosttySpawner {
             ]);
         }
 
-        // Execute nvim using -e flag
-        cmd.args(["-e", &resolved_nvim, "+normal G$", file_path]);
+        // Execute editor using -e flag
+        cmd.arg("-e");
+        cmd.arg(&resolved_editor);
+        for arg in &editor_args {
+            cmd.arg(arg);
+        }
+        cmd.arg(file_path);
 
         cmd.spawn()
             .map_err(|e| format!("Failed to spawn ghostty: {}", e))?;
 
-        // Wait a bit for nvim to start, then find its PID by the file it's editing
-        let pid = find_nvim_pid_for_file(file_path);
-        log::info!("Found nvim PID: {:?} for file: {}", pid, file_path);
+        // Wait a bit for editor to start, then find its PID by the file it's editing
+        let pid = find_editor_pid_for_file(file_path, process_name);
+        log::info!("Found editor PID: {:?} for file: {}", pid, file_path);
 
         Ok(SpawnInfo {
             terminal_type: TerminalType::Ghostty,

@@ -2,8 +2,9 @@
 
 use std::process::Command;
 
-use super::process_utils::find_nvim_pid_for_file;
+use super::process_utils::find_editor_pid_for_file;
 use super::{SpawnInfo, TerminalSpawner, TerminalType, WindowGeometry};
+use crate::config::NvimEditSettings;
 
 pub struct TerminalAppSpawner;
 
@@ -14,20 +15,33 @@ impl TerminalSpawner for TerminalAppSpawner {
 
     fn spawn(
         &self,
-        nvim_path: &str,
+        settings: &NvimEditSettings,
         file_path: &str,
         geometry: Option<WindowGeometry>,
     ) -> Result<SpawnInfo, String> {
+        // Get editor path and args from settings
+        let editor_path = settings.editor_path();
+        let editor_args = settings.editor_args();
+        let process_name = settings.editor_process_name();
+
+        // Build the command string for AppleScript
+        let args_str = if editor_args.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", editor_args.join(" "))
+        };
+
         let script = if let Some(geo) = geometry {
             format!(
                 r#"
             tell application "Terminal"
                 activate
-                do script "{} '+normal G$' '{}'"
+                do script "{}{} '{}'"
                 set bounds of front window to {{{}, {}, {}, {}}}
             end tell
             "#,
-                nvim_path,
+                editor_path,
+                args_str,
                 file_path,
                 geo.x,
                 geo.y,
@@ -39,10 +53,10 @@ impl TerminalSpawner for TerminalAppSpawner {
                 r#"
             tell application "Terminal"
                 activate
-                do script "{} '+normal G$' '{}'"
+                do script "{}{} '{}'"
             end tell
             "#,
-                nvim_path, file_path
+                editor_path, args_str, file_path
             )
         };
 
@@ -52,9 +66,9 @@ impl TerminalSpawner for TerminalAppSpawner {
             .output()
             .map_err(|e| format!("Failed to run Terminal AppleScript: {}", e))?;
 
-        // Try to find the nvim process ID by the file it's editing
-        let pid = find_nvim_pid_for_file(file_path);
-        log::info!("Found nvim PID: {:?} for file: {}", pid, file_path);
+        // Try to find the editor process ID by the file it's editing
+        let pid = find_editor_pid_for_file(file_path, process_name);
+        log::info!("Found editor PID: {:?} for file: {}", pid, file_path);
 
         Ok(SpawnInfo {
             terminal_type: TerminalType::Default,

@@ -10,7 +10,58 @@ pub struct VimKeyModifiers {
     pub command: bool,
 }
 
-/// Settings for "Edit with Neovim" feature
+/// Supported editor types for external editing
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum EditorType {
+    #[default]
+    Neovim,
+    Vim,
+    Helix,
+    Custom,
+}
+
+impl EditorType {
+    pub fn from_string(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "neovim" | "nvim" => EditorType::Neovim,
+            "vim" => EditorType::Vim,
+            "helix" | "hx" => EditorType::Helix,
+            _ => EditorType::Custom,
+        }
+    }
+
+    /// Get the default executable name for this editor
+    pub fn default_executable(&self) -> &'static str {
+        match self {
+            EditorType::Neovim => "nvim",
+            EditorType::Vim => "vim",
+            EditorType::Helix => "hx",
+            EditorType::Custom => "",
+        }
+    }
+
+    /// Get the process name to search for (may differ from executable)
+    pub fn process_name(&self) -> &'static str {
+        match self {
+            EditorType::Neovim => "nvim",
+            EditorType::Vim => "vim",
+            EditorType::Helix => "hx",
+            EditorType::Custom => "",
+        }
+    }
+
+    /// Get the arguments to position cursor at end of file
+    pub fn cursor_end_args(&self) -> Vec<&'static str> {
+        match self {
+            EditorType::Neovim | EditorType::Vim => vec!["+normal G$"],
+            EditorType::Helix => vec![], // Helix doesn't have equivalent startup command
+            EditorType::Custom => vec![],
+        }
+    }
+}
+
+/// Settings for "Edit with External Editor" feature
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NvimEditSettings {
@@ -22,7 +73,11 @@ pub struct NvimEditSettings {
     pub shortcut_modifiers: VimKeyModifiers,
     /// Terminal to use: "alacritty", "iterm", "kitty", "default"
     pub terminal: String,
-    /// Path to nvim (default: "nvim" - uses PATH)
+    /// Editor type: "neovim", "vim", "helix", or "custom"
+    #[serde(default)]
+    pub editor: EditorType,
+    /// Path to editor executable (default: uses editor type's default)
+    /// For backwards compatibility, this is still called nvim_path
     pub nvim_path: String,
     /// Position window below text field instead of fullscreen
     pub popup_mode: bool,
@@ -44,10 +99,40 @@ impl Default for NvimEditSettings {
                 command: true, // Cmd+Shift+E
             },
             terminal: "alacritty".to_string(),
-            nvim_path: "nvim".to_string(),
+            editor: EditorType::default(),
+            nvim_path: "".to_string(), // Empty means use editor type's default
             popup_mode: true,
             popup_width: 0, // 0 = match text field width
             popup_height: 300,
+        }
+    }
+}
+
+impl NvimEditSettings {
+    /// Get the effective editor executable path
+    pub fn editor_path(&self) -> String {
+        if self.nvim_path.is_empty() {
+            self.editor.default_executable().to_string()
+        } else {
+            self.nvim_path.clone()
+        }
+    }
+
+    /// Get the editor arguments for cursor positioning
+    pub fn editor_args(&self) -> Vec<&str> {
+        self.editor.cursor_end_args()
+    }
+
+    /// Get the process name to search for when waiting for editor to exit
+    pub fn editor_process_name(&self) -> &str {
+        if self.nvim_path.is_empty() {
+            self.editor.process_name()
+        } else {
+            // For custom paths, extract the binary name from the path
+            std::path::Path::new(&self.nvim_path)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
         }
     }
 }
@@ -179,24 +264,45 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Get the path to the settings file
+    /// Get the path to the YAML settings file
     pub fn file_path() -> Option<PathBuf> {
+        dirs::config_dir().map(|p| p.join("ovim").join("settings.yaml"))
+    }
+
+    /// Get the path to the legacy JSON settings file
+    fn legacy_json_path() -> Option<PathBuf> {
         dirs::config_dir().map(|p| p.join("ovim").join("settings.json"))
     }
 
-    /// Load settings from disk
+    /// Load settings from disk (YAML format, with JSON migration)
     pub fn load() -> Self {
-        if let Some(path) = Self::file_path() {
-            if let Ok(contents) = std::fs::read_to_string(&path) {
-                if let Ok(settings) = serde_json::from_str(&contents) {
+        // First, try to load from YAML
+        if let Some(yaml_path) = Self::file_path() {
+            if let Ok(contents) = std::fs::read_to_string(&yaml_path) {
+                if let Ok(settings) = serde_yml::from_str(&contents) {
                     return settings;
                 }
             }
         }
+
+        // If no YAML exists, try to migrate from JSON
+        if let Some(json_path) = Self::legacy_json_path() {
+            if let Ok(contents) = std::fs::read_to_string(&json_path) {
+                if let Ok(settings) = serde_json::from_str::<Settings>(&contents) {
+                    // Save as YAML and delete the old JSON file
+                    if settings.save().is_ok() {
+                        let _ = std::fs::remove_file(&json_path);
+                        log::info!("Migrated settings from JSON to YAML format");
+                    }
+                    return settings;
+                }
+            }
+        }
+
         Self::default()
     }
 
-    /// Save settings to disk
+    /// Save settings to disk (YAML format)
     pub fn save(&self) -> Result<(), String> {
         let path = Self::file_path().ok_or("Could not determine config directory")?;
 
@@ -207,7 +313,7 @@ impl Settings {
         }
 
         let contents =
-            serde_json::to_string_pretty(self).map_err(|e| format!("Failed to serialize: {}", e))?;
+            serde_yml::to_string(self).map_err(|e| format!("Failed to serialize: {}", e))?;
 
         std::fs::write(&path, contents).map_err(|e| format!("Failed to write settings: {}", e))
     }

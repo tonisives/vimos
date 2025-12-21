@@ -62,13 +62,13 @@ impl EditSessionManager {
             .and_then(|m| m.modified())
             .map_err(|e| format!("Failed to get file mtime: {}", e))?;
 
-        // Spawn terminal
+        // Spawn terminal with configured editor
         let SpawnInfo {
             terminal_type,
             process_id,
             child: _,
             window_title,
-        } = spawn_terminal(&settings.terminal, &settings.nvim_path, &temp_file, geometry)?;
+        } = spawn_terminal(&settings, &temp_file, geometry)?;
 
         // Create session
         let session = EditSession {

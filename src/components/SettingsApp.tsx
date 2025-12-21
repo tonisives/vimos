@@ -19,6 +19,7 @@ export interface NvimEditSettings {
   shortcut_key: string;
   shortcut_modifiers: VimKeyModifiers;
   terminal: string;
+  editor: string;
   nvim_path: string;
   popup_mode: boolean;
   popup_width: number;

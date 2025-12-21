@@ -23,6 +23,20 @@ const TERMINAL_OPTIONS = [
   { value: "default", label: "Terminal.app" },
 ]
 
+const EDITOR_OPTIONS = [
+  { value: "neovim", label: "Neovim" },
+  { value: "vim", label: "Vim" },
+  { value: "helix", label: "Helix" },
+  { value: "custom", label: "Custom" },
+]
+
+const DEFAULT_EDITOR_PATHS: Record<string, string> = {
+  neovim: "nvim",
+  vim: "vim",
+  helix: "hx",
+  custom: "",
+}
+
 export function NvimEditSettings({ settings, onUpdate }: Props) {
   const [isRecording, setIsRecording] = useState(false)
   const [displayName, setDisplayName] = useState<string | null>(null)
@@ -45,6 +59,25 @@ export function NvimEditSettings({ settings, onUpdate }: Props) {
     onUpdate({
       nvim_edit: { ...nvimEdit, ...updates },
     })
+  }
+
+  const handleEditorChange = (newEditor: string) => {
+    const currentPath = nvimEdit.nvim_path
+
+    // Check if current path is empty or matches a default editor path
+    const isDefaultPath = currentPath === "" ||
+      Object.values(DEFAULT_EDITOR_PATHS).includes(currentPath)
+
+    if (isDefaultPath) {
+      // Update both editor and path to the new editor's default
+      updateNvimEdit({
+        editor: newEditor,
+        nvim_path: "" // Empty means use default
+      })
+    } else {
+      // User has a custom path, keep it
+      updateNvimEdit({ editor: newEditor })
+    }
   }
 
   const handleRecordKey = async () => {
@@ -73,7 +106,7 @@ export function NvimEditSettings({ settings, onUpdate }: Props) {
     <div className="settings-section">
       <h2>Edit Popup</h2>
       <p className="section-description">
-        Press a shortcut while focused on any text field to edit its contents in Neovim.
+        Press a shortcut while focused on any text field to edit its contents in your preferred terminal editor.
       </p>
 
       <div className="form-group">
@@ -83,7 +116,7 @@ export function NvimEditSettings({ settings, onUpdate }: Props) {
             checked={nvimEdit.enabled}
             onChange={(e) => updateNvimEdit({ enabled: e.target.checked })}
           />
-          Enable "Edit with Neovim" feature
+          Enable external editor feature
         </label>
       </div>
 
@@ -110,6 +143,36 @@ export function NvimEditSettings({ settings, onUpdate }: Props) {
         </div>
       </div>
 
+      <div className="form-row editor-row">
+        <div className="form-group">
+          <label htmlFor="editor">Editor</label>
+          <select
+            id="editor"
+            value={nvimEdit.editor}
+            onChange={(e) => handleEditorChange(e.target.value)}
+            disabled={!nvimEdit.enabled}
+          >
+            {EDITOR_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="form-group editor-path-group">
+          <label htmlFor="nvim-path">Path {nvimEdit.editor !== "custom" && "(optional)"}</label>
+          <input
+            type="text"
+            id="nvim-path"
+            value={nvimEdit.nvim_path}
+            onChange={(e) => updateNvimEdit({ nvim_path: e.target.value })}
+            placeholder={DEFAULT_EDITOR_PATHS[nvimEdit.editor] || ""}
+            disabled={!nvimEdit.enabled}
+          />
+        </div>
+      </div>
+
       <div className="form-group">
         <label htmlFor="terminal">Terminal</label>
         <select
@@ -129,19 +192,6 @@ export function NvimEditSettings({ settings, onUpdate }: Props) {
             Limited support. Please use Alacritty for best performance and tested compatibility.
           </div>
         )}
-      </div>
-
-      <div className="form-group">
-        <label htmlFor="nvim-path">Neovim path</label>
-        <input
-          type="text"
-          id="nvim-path"
-          value={nvimEdit.nvim_path}
-          onChange={(e) => updateNvimEdit({ nvim_path: e.target.value })}
-          placeholder="nvim"
-          disabled={!nvimEdit.enabled}
-        />
-        <span className="hint">Path to nvim binary (use "nvim" if it's in your PATH)</span>
       </div>
 
       <div className="form-group">
