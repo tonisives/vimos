@@ -21,6 +21,7 @@ const TERMINAL_OPTIONS = [
   { value: "alacritty", label: "Alacritty" },
   { value: "kitty", label: "Kitty" },
   { value: "wezterm", label: "WezTerm" },
+  { value: "iterm", label: "iTerm2" },
   { value: "default", label: "Terminal.app" },
 ]
 

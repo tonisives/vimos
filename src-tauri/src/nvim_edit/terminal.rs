@@ -373,6 +373,7 @@ fn spawn_wezterm(nvim_path: &str, file_path: &str, geometry: Option<WindowGeomet
 fn spawn_iterm(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry>) -> Result<SpawnInfo, String> {
     // Use AppleScript to open iTerm and run nvim with position/size
     // Use "+normal G$" to move cursor to end of file
+    // Run nvim followed by exit so the shell closes when nvim exits
     let script = if let Some(geo) = geometry {
         format!(
             r#"
@@ -381,7 +382,7 @@ fn spawn_iterm(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry
                 set newWindow to (create window with default profile)
                 set bounds of newWindow to {{{}, {}, {}, {}}}
                 tell current session of newWindow
-                    write text "{} '+normal G$' '{}'"
+                    write text "{} '+normal G$' '{}'; exit"
                 end tell
             end tell
             "#,
@@ -395,7 +396,7 @@ fn spawn_iterm(nvim_path: &str, file_path: &str, geometry: Option<WindowGeometry
                 activate
                 set newWindow to (create window with default profile)
                 tell current session of newWindow
-                    write text "{} '+normal G$' '{}'"
+                    write text "{} '+normal G$' '{}'; exit"
                 end tell
             end tell
             "#,
