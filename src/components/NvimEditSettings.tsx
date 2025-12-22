@@ -27,7 +27,6 @@ const TERMINAL_OPTIONS = [
   { value: "alacritty", label: "Alacritty" },
   { value: "kitty", label: "Kitty" },
   { value: "wezterm", label: "WezTerm" },
-  { value: "ghostty", label: "Ghostty" },
   { value: "iterm", label: "iTerm2" },
   { value: "default", label: "Terminal.app" },
 ]
@@ -36,7 +35,6 @@ const DEFAULT_TERMINAL_PATHS: Record<string, string> = {
   alacritty: "/Applications/Alacritty.app/Contents/MacOS/alacritty",
   kitty: "/Applications/kitty.app/Contents/MacOS/kitty",
   wezterm: "/Applications/WezTerm.app/Contents/MacOS/wezterm",
-  ghostty: "/Applications/Ghostty.app/Contents/MacOS/ghostty",
   iterm: "",
   default: "",
 }
