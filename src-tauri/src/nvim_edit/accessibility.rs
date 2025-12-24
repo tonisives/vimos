@@ -395,6 +395,76 @@ pub fn get_focused_element_text() -> Option<String> {
     value.into_string()
 }
 
+/// Get the bounds of the screen containing a given point
+/// Returns the screen frame (x, y, width, height) in screen coordinates
+pub fn get_screen_bounds_for_point(x: f64, y: f64) -> Option<ElementFrame> {
+    unsafe {
+        use objc::{class, msg_send, sel, sel_impl};
+
+        // Get all screens
+        let screens: *mut objc::runtime::Object = msg_send![class!(NSScreen), screens];
+        if screens.is_null() {
+            return None;
+        }
+
+        let count: usize = msg_send![screens, count];
+        if count == 0 {
+            return None;
+        }
+
+        // Find the screen containing the point
+        for i in 0..count {
+            let screen: *mut objc::runtime::Object = msg_send![screens, objectAtIndex: i];
+            if screen.is_null() {
+                continue;
+            }
+
+            // Get the screen's frame (in Cocoa coordinates - origin at bottom-left)
+            let frame: core_graphics::geometry::CGRect = msg_send![screen, frame];
+
+            // Convert Cocoa coordinates to screen coordinates (origin at top-left)
+            // In Cocoa, y=0 is at the bottom, but we work with y=0 at top
+            // The main screen's height gives us the reference
+            let main_screen: *mut objc::runtime::Object = msg_send![class!(NSScreen), mainScreen];
+            let main_frame: core_graphics::geometry::CGRect = msg_send![main_screen, frame];
+            let main_height = main_frame.size.height;
+
+            // Convert y coordinate: screen_y = main_height - cocoa_y - screen_height
+            let screen_y = main_height - frame.origin.y - frame.size.height;
+
+            // Check if point is within this screen (using screen coordinates)
+            let screen_left = frame.origin.x;
+            let screen_right = frame.origin.x + frame.size.width;
+            let screen_top = screen_y;
+            let screen_bottom = screen_y + frame.size.height;
+
+            if x >= screen_left && x < screen_right && y >= screen_top && y < screen_bottom {
+                return Some(ElementFrame {
+                    x: screen_left,
+                    y: screen_top,
+                    width: frame.size.width,
+                    height: frame.size.height,
+                });
+            }
+        }
+
+        // Fallback to main screen if point not found on any screen
+        let main_screen: *mut objc::runtime::Object = msg_send![class!(NSScreen), mainScreen];
+        if main_screen.is_null() {
+            return None;
+        }
+
+        let frame: core_graphics::geometry::CGRect = msg_send![main_screen, frame];
+
+        Some(ElementFrame {
+            x: frame.origin.x,
+            y: 0.0, // Main screen top is always 0 in screen coordinates
+            width: frame.size.width,
+            height: frame.size.height,
+        })
+    }
+}
+
 /// Set the text value of a UI element
 ///
 /// This is used for live text sync - updating the original text field
