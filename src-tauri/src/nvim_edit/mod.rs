@@ -65,9 +65,8 @@ pub fn trigger_nvim_edit(
     let geometry = if settings.popup_mode {
         // Try to get element frame from accessibility API
         let frame_geometry = element_frame.map(|frame| {
-            // Position window below the text field with a small gap
+            let gap = 5;
             let x = frame.x as i32;
-            let y = (frame.y + frame.height) as i32 + 5;
 
             // Use configured width, or match text field width (min 400)
             let width = if settings.popup_width > 0 {
@@ -77,6 +76,32 @@ pub fn trigger_nvim_edit(
             };
 
             let height = settings.popup_height;
+            let popup_height = height as i32;
+
+            // Default: position below the text field
+            let mut y = (frame.y + frame.height) as i32 + gap;
+
+            // Get screen bounds to check if popup fits
+            if let Some(screen) = accessibility::get_screen_bounds_for_point(frame.x, frame.y) {
+                let screen_bottom = (screen.y + screen.height) as i32;
+                let popup_bottom = y + popup_height;
+
+                // If popup would go off screen bottom, try positioning above
+                if popup_bottom > screen_bottom {
+                    let above_y = frame.y as i32 - popup_height - gap;
+                    let screen_top = screen.y as i32;
+
+                    if above_y >= screen_top {
+                        // Fits above - use that position
+                        y = above_y;
+                        log::info!("Popup doesn't fit below, positioning above at y={}", y);
+                    } else {
+                        // Neither above nor below fits - center on screen
+                        y = (screen.y + (screen.height - popup_height as f64) / 2.0) as i32;
+                        log::info!("Popup doesn't fit above or below, centering at y={}", y);
+                    }
+                }
+            }
 
             log::info!("Using element frame geometry: x={}, y={}, w={}, h={}", x, y, width, height);
             WindowGeometry { x, y, width, height }
