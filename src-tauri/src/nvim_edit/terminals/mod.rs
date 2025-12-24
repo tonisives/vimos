@@ -1,4 +1,4 @@
-//! Terminal spawning for external editor feature
+//! Terminal spawning for Edit Popup feature
 //!
 //! This module provides a unified interface for spawning different terminal emulators
 //! with various text editors (Neovim, Vim, Helix, etc.)

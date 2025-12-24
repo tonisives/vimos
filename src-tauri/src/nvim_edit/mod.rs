@@ -118,7 +118,7 @@ pub fn trigger_nvim_edit(
     let session_id = manager.start_session(focus_context, text.clone(), settings.clone(), geometry)?;
     log::info!("Started edit session: {}", session_id);
 
-    // 5. Start RPC connection and live sync in background
+    // 5. Start RPC connection and live sync in background (if enabled)
     let session = manager.get_session(&session_id)
         .ok_or("Session not found immediately after creation")?;
 
@@ -130,6 +130,7 @@ pub fn trigger_nvim_edit(
     let socket_path = session.socket_path.clone();
     let focus_element = session.focus_context.focused_element.clone();
     let browser_type = browser_scripting::detect_browser_type(&session.focus_context.app_bundle_id);
+    let live_sync_enabled = settings.live_sync_enabled;
 
     // Spawn async task for RPC communication
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -139,6 +140,12 @@ pub fn trigger_nvim_edit(
 
     // Spawn the RPC handler in a separate thread with its own runtime
     let rpc_handle = thread::spawn(move || {
+        // Skip RPC if live sync is disabled
+        if !live_sync_enabled {
+            log::info!("Live sync disabled, skipping RPC connection");
+            return;
+        }
+
         rt.block_on(async {
             // Try to connect to nvim via RPC
             log::info!("Attempting RPC connection to {:?}", socket_path);
