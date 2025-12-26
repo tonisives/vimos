@@ -7,7 +7,7 @@ macOS system-wide Vim keybindings and modal editor.
 | In-Place Mode                                                                                                                                          | Edit Popup                                                                                                                                   |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | Simulates Vim motions by intercepting keystrokes and injecting native macOS key events. Works instantly in any app. Supports a subset of Vim commands. | Opens your actual Neovim installation in a terminal window with your full config and plugins. Edit complex text, then paste back with `:wq`. |
-| ![Normal](docs/images/Component-2.png) ![Visual](docs/images/Component-3.png) ![Insert](docs/images/Component-4.png)                                   | ![Edit Popup](docs/images/edit-popup.gif)                                                                                                    |
+| ![c-u-d](docs/images/visual-C-u-d.gif)                                     | ![Edit Popup](docs/images/edit-popup.gif)                                                                                                    |
 
 ## Features
 
