@@ -1,8 +1,9 @@
 //! Update-related commands
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::updater;
+use crate::window;
 
 /// Get the current application version
 #[tauri::command]
@@ -21,4 +22,14 @@ pub async fn check_for_update(app: AppHandle) -> Result<Option<String>, String> 
 #[tauri::command]
 pub fn restart_app(app: AppHandle) {
     app.restart();
+}
+
+/// Set whether the indicator window ignores mouse events
+#[tauri::command]
+pub fn set_indicator_clickable(app: AppHandle, clickable: bool) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("indicator") {
+        window::set_indicator_ignores_mouse(&window, !clickable)
+    } else {
+        Err("Indicator window not found".to_string())
+    }
 }

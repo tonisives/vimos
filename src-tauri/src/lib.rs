@@ -219,6 +219,7 @@ pub fn run() {
             commands::get_version,
             commands::check_for_update,
             commands::restart_app,
+            commands::set_indicator_clickable,
         ])
         .setup(move |app| {
             #[cfg(target_os = "macos")]

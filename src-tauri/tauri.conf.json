@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "macOSPrivateApi": true,
     "trayIcon": {
       "id": "main",

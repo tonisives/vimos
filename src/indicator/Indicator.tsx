@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { listen } from "@tauri-apps/api/event"
 import { invoke } from "@tauri-apps/api/core"
+import { openUrl } from "@tauri-apps/plugin-opener"
 import { Widget } from "./widgets"
 import { applyWindowSettings } from "./windowPosition"
 import type { VimMode, Settings, ModeColors } from "./types"
@@ -56,6 +57,10 @@ export function Indicator() {
   useEffect(() => {
     const unlisten = listen<PendingUpdate>("update-installed", (event) => {
       setPendingUpdate(event.payload)
+      // Make window clickable when update is available
+      invoke("set_indicator_clickable", { clickable: true }).catch((e) =>
+        console.error("Failed to make indicator clickable:", e)
+      )
     })
 
     return () => {
@@ -63,8 +68,16 @@ export function Indicator() {
     }
   }, [])
 
-  const handleRestartClick = () => {
-    invoke("restart_app").catch((e) => console.error("Failed to restart:", e))
+  const handleRestartClick = async (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    // Open GitHub releases page
+    const url = `https://github.com/tonisives/ovim/releases/tag/v${pendingUpdate?.version}`
+    await openUrl(url).catch((err) => console.error("Failed to open releases:", err))
+    // Small delay to ensure browser opens before restart
+    setTimeout(() => {
+      invoke("restart_app").catch((e) => console.error("Failed to restart:", e))
+    }, 500)
   }
 
   const modeChar = mode === "insert" ? "i" : mode === "normal" ? "n" : "v"
@@ -108,33 +121,32 @@ export function Indicator() {
         position: "relative",
       }}
     >
-      {/* Update badge overlay */}
+      {/* Update badge overlay - covers entire indicator */}
       {pendingUpdate && (
         <button
           onClick={handleRestartClick}
           title={`Update to v${pendingUpdate.version} ready - click to restart`}
           style={{
             position: "absolute",
-            top: "-4px",
-            right: "-4px",
-            width: "16px",
-            height: "16px",
-            borderRadius: "50%",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            borderRadius: "8px",
             background: "#30d158",
-            border: "2px solid white",
+            border: "none",
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: "10px",
+            fontSize: "20px",
             fontWeight: "bold",
             color: "white",
             zIndex: 10,
             padding: 0,
-            boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
           }}
         >
-          !
+          ↑
         </button>
       )}
       {hasTop && <Widget type={topWidget} fontFamily={fontFamily} />}
