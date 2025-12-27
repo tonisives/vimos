@@ -214,6 +214,9 @@ pub fn run() {
             commands::cancel_record_key,
             commands::webview_log,
             commands::validate_nvim_edit_paths,
+            commands::set_indicator_ignores_mouse,
+            commands::is_command_key_pressed,
+            commands::is_mouse_over_indicator,
         ])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
