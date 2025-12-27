@@ -98,12 +98,10 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
-      - name: Build Tauri app with updater artifacts
+      - name: Build Tauri app (without updater signing)
         run: pnpm tauri build ${{ matrix.args }}
         env:
           CI: true
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Upload unsigned app bundle
         uses: actions/upload-artifact@v4
@@ -113,18 +111,56 @@ jobs:
             src-tauri/target/*/release/bundle/macos/*.app
           retention-days: 1
 
-      - name: Upload updater artifacts
+      - name: Upload tar.gz for updater signing
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-unsigned-${{ matrix.arch }}
+          path: |
+            src-tauri/target/*/release/bundle/macos/*.app.tar.gz
+          retention-days: 1
+
+  # Sign updater artifacts with Tauri key
+  sign-updater:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: 'aarch64'
+          - arch: 'x64'
+    steps:
+      - name: Download unsigned tar.gz
+        uses: actions/download-artifact@v4
+        with:
+          name: updater-unsigned-${{ matrix.arch }}
+          path: updater
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli
+
+      - name: Sign updater artifact
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          TAR_GZ=$(find updater -name "*.app.tar.gz" | head -1)
+          echo "Signing: $TAR_GZ"
+          cargo tauri signer sign "$TAR_GZ" --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+          ls -la updater/
+
+      - name: Upload signed updater artifacts
         uses: actions/upload-artifact@v4
         with:
           name: updater-${{ matrix.arch }}
           path: |
-            src-tauri/target/*/release/bundle/macos/*.app.tar.gz
-            src-tauri/target/*/release/bundle/macos/*.app.tar.gz.sig
+            updater/*.app.tar.gz
+            updater/*.app.tar.gz.sig
           retention-days: 1
 
   # Sign and notarize the app
   sign:
-    needs: build
+    needs: [build, sign-updater]
     permissions:
       contents: write
     strategy:
