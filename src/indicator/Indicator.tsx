@@ -5,6 +5,10 @@ import { Widget } from "./widgets"
 import { applyWindowSettings } from "./windowPosition"
 import type { VimMode, Settings, ModeColors } from "./types"
 
+interface PendingUpdate {
+  version: string
+}
+
 const defaultColors: ModeColors = {
   insert: { r: 74, g: 144, b: 217 },
   normal: { r: 232, g: 148, b: 74 },
@@ -14,6 +18,7 @@ const defaultColors: ModeColors = {
 export function Indicator() {
   const [mode, setMode] = useState<VimMode>("insert")
   const [settings, setSettings] = useState<Settings | null>(null)
+  const [pendingUpdate, setPendingUpdate] = useState<PendingUpdate | null>(null)
 
   useEffect(() => {
     invoke<Settings>("get_settings")
@@ -46,6 +51,21 @@ export function Indicator() {
       unlisten.then((fn) => fn())
     }
   }, [])
+
+  // Listen for update-installed events
+  useEffect(() => {
+    const unlisten = listen<PendingUpdate>("update-installed", (event) => {
+      setPendingUpdate(event.payload)
+    })
+
+    return () => {
+      unlisten.then((fn) => fn())
+    }
+  }, [])
+
+  const handleRestartClick = () => {
+    invoke("restart_app").catch((e) => console.error("Failed to restart:", e))
+  }
 
   const modeChar = mode === "insert" ? "i" : mode === "normal" ? "n" : "v"
   const opacity = settings?.indicator_opacity ?? 0.9
@@ -85,8 +105,38 @@ export function Indicator() {
         overflow: "hidden",
         paddingBottom: "1px",
         opacity,
+        position: "relative",
       }}
     >
+      {/* Update badge overlay */}
+      {pendingUpdate && (
+        <button
+          onClick={handleRestartClick}
+          title={`Update to v${pendingUpdate.version} ready - click to restart`}
+          style={{
+            position: "absolute",
+            top: "-4px",
+            right: "-4px",
+            width: "16px",
+            height: "16px",
+            borderRadius: "50%",
+            background: "#30d158",
+            border: "2px solid white",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "10px",
+            fontWeight: "bold",
+            color: "white",
+            zIndex: 10,
+            padding: 0,
+            boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+          }}
+        >
+          !
+        </button>
+      )}
       {hasTop && <Widget type={topWidget} fontFamily={fontFamily} />}
       <div
         style={{
