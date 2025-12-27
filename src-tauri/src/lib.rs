@@ -7,6 +7,7 @@ pub mod ipc;
 mod keyboard;
 mod keyboard_handler;
 mod nvim_edit;
+mod updater;
 mod vim;
 mod widgets;
 mod window;
@@ -190,6 +191,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::check_permission,
@@ -214,6 +216,9 @@ pub fn run() {
             commands::cancel_record_key,
             commands::webview_log,
             commands::validate_nvim_edit_paths,
+            commands::get_version,
+            commands::check_for_update,
+            commands::restart_app,
         ])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
@@ -316,6 +321,10 @@ pub fn run() {
                     log::error!("IPC server error: {}", e);
                 }
             });
+
+            // Start periodic update checker
+            let state: State<AppState> = app.state();
+            updater::start_update_checker(app.handle().clone(), Arc::clone(&state.settings));
 
             Ok(())
         })
